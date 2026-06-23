@@ -1,26 +1,286 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #070a12;
+  --bg-elev: #0b0f1a;
+  --panel: #0e1320;
+  --panel-2: #121829;
+  --fg: #eef2f8;
+  --fg-muted: #8b93a7;
+  --rule: #1b2335;
+
+  /* Token delta — Sections After Hero spec §5 (cobalt-corrected Vervia) */
+  --accent: #4c8dff; /* cobalt — primary accent, all section glows */
+  --accent-bright: #6da4ff;
+  --accent-soft: rgba(76, 141, 255, 0.12);
+  --accent-glow: #4c8dff; /* cobalt glow blobs */
+  --accent-sharp: #ef4444; /* red — sparing secondary (active states, fine lines) */
+  --accent-warm: #f0975a; /* warm — Get-in-Touch CTA ONLY */
+  --plane-atmos: rgba(255, 255, 255, 0.04); /* P1 motif opacity ceiling */
+  --card-fill: rgba(255, 255, 255, 0.05); /* glassy card body */
+  --card-stroke: rgba(255, 255, 255, 0.12);
+
+  /* Neo-cyberpunk lighting — cobalt × cyan × magenta neon duotone */
+  --neon-cyan: #41a6f6;
+  --neon-cyan-bright: #73eff7;
+  --neon-magenta: #c14bff;
+  --glass-fill: rgba(18, 24, 41, 0.45); /* tinted glass body */
+  --glass-stroke: rgba(115, 239, 247, 0.16); /* faint cyan edge */
+  --glass-highlight: rgba(255, 255, 255, 0.08); /* top inner sheen */
+
+  --font-display: var(--font-archivo);
+  --font-body: var(--font-space-grotesk);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-bg-elev: var(--bg-elev);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-rule: var(--rule);
+  --color-accent: var(--accent);
+  --color-accent-bright: var(--accent-bright);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-glow: var(--accent-glow);
+  --color-accent-sharp: var(--accent-sharp);
+  --color-accent-warm: var(--accent-warm);
+  --color-plane-atmos: var(--plane-atmos);
+  --color-card-fill: var(--card-fill);
+  --color-card-stroke: var(--card-stroke);
+  --color-neon-cyan: var(--neon-cyan);
+  --color-neon-cyan-bright: var(--neon-cyan-bright);
+  --color-neon-magenta: var(--neon-magenta);
+  --font-display: var(--font-archivo);
+  --font-body: var(--font-space-grotesk);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--accent);
+  color: #06080f;
+}
+
+.font-display {
+  font-family: var(--font-display), system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.eyebrow::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--accent);
+}
+
+/* Lenis */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+  overflow: clip;
+}
+
+/* hide scrollbar on carousels */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ───────────────────────── Neo-cyberpunk + glassmorphism ─────────────────────────
+   A site-wide ambient: tinted glass surfaces lit by cobalt/cyan/magenta neon. */
+
+/* Ambient neon wash behind everything — fixed so it lights the whole scroll. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 50% at 12% 8%, rgba(76, 141, 255, 0.16), transparent 70%),
+    radial-gradient(55% 45% at 88% 22%, rgba(115, 239, 247, 0.1), transparent 70%),
+    radial-gradient(60% 55% at 78% 96%, rgba(193, 75, 255, 0.1), transparent 72%);
+}
+/* faint cyber grid overlay */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  background-image:
+    linear-gradient(rgba(115, 239, 247, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(115, 239, 247, 0.04) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(120% 90% at 50% 30%, #000 30%, transparent 85%);
+}
+/* keep real content above the ambient layers */
+#__next,
+main,
+body > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Glass surface — tinted, blurred, with a top inner sheen + soft neon edge. */
+.glass {
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-stroke);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 18px 50px -28px rgba(0, 0, 0, 0.85);
+}
+/* Brighter neon-edged glass for focused / elevated surfaces. */
+.glass-neon {
+  background: var(--glass-fill);
+  border: 1px solid rgba(115, 239, 247, 0.5);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 1px rgba(76, 141, 255, 0.25),
+    0 0 28px -2px rgba(76, 141, 255, 0.5),
+    0 0 60px -10px rgba(115, 239, 247, 0.4);
+}
+/* Thin neon hairline glow on hover targets. */
+.neon-hover {
+  transition: box-shadow 0.4s ease, border-color 0.4s ease, transform 0.4s ease;
+}
+.neon-hover:hover {
+  border-color: rgba(115, 239, 247, 0.55);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 26px -4px rgba(76, 141, 255, 0.55),
+    0 0 50px -10px rgba(115, 239, 247, 0.4);
+}
+
+/* ── Testimonials marquee ── */
+@keyframes marquee-x {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee-x var(--marquee-duration, 48s) linear infinite;
+  will-change: transform;
+}
+/* pause the whole belt while any card in the row is hovered */
+.marquee-row:hover .marquee-track {
+  animation-play-state: paused;
+}
+/* dim the belt on hover, then re-light only the hovered card */
+.marquee-row:hover .marquee-card {
+  opacity: 0.45;
+  filter: saturate(0.7);
+}
+.marquee-row .marquee-card:hover {
+  opacity: 1 !important;
+  filter: none !important;
+  transform: translateY(-10px) scale(1.05);
+  border-color: rgba(115, 239, 247, 0.55);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 1px rgba(76, 141, 255, 0.3),
+    0 0 36px -4px rgba(76, 141, 255, 0.6),
+    0 0 70px -12px rgba(115, 239, 247, 0.45);
+}
+.marquee-card {
+  transition: opacity 0.4s ease, filter 0.4s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.45s ease, border-color 0.45s ease;
+}
+
+/* ── Minimal CTA — subtle pill, neon edge on hover ── */
+.cta-minimal {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.5rem 0.9rem;
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  transition: color 0.25s ease, border-color 0.25s ease, background 0.25s ease,
+    box-shadow 0.25s ease;
+}
+.cta-minimal:hover {
+  color: var(--fg);
+  border-color: rgba(115, 239, 247, 0.45);
+  background: rgba(115, 239, 247, 0.06);
+  box-shadow: 0 0 22px -6px rgba(115, 239, 247, 0.5);
+}
+.cta-minimal svg {
+  transition: transform 0.25s ease;
+}
+.cta-minimal:hover svg {
+  transform: translateX(3px);
+}
+
+/* ── Gallery hover-highlight — hovering one item dims the rest ── */
+.gallery-grid:hover .gallery-item {
+  opacity: 0.4;
+  filter: saturate(0.75) brightness(0.85);
+}
+.gallery-grid .gallery-item:hover {
+  opacity: 1 !important;
+  filter: none !important;
+  transform: scale(1.015);
+  box-shadow: 0 0 0 1px rgba(115, 239, 247, 0.4),
+    0 24px 60px -20px rgba(76, 141, 255, 0.55);
+}
+.gallery-item {
+  transition: opacity 0.4s ease, filter 0.4s ease,
+    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.5s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .marquee-track {
+    animation: none !important;
+  }
 }
