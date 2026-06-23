@@ -9,8 +9,9 @@ const DOTS = [
   { id: "contact", label: "Contact" },
 ];
 
-const SRC = "/video/cat-exit-scrub.mp4";
-const POSTER = "/video/cat-poster.jpg";
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const SRC = `${BASE}/video/cat-exit-scrub.mp4`;
+const POSTER = `${BASE}/video/cat-poster.jpg`;
 const TRACK_VH = 300; // scroll distance = cat speed
 const EASE = 0.14; // higher = snappier, lower = silkier
 
