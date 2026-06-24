@@ -4,6 +4,7 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import { useDepthParallax } from "@/hooks/useDepthParallax";
 import { asset } from "@/lib/asset";
+import AboutCat from "./AboutCat";
 import { ParallaxLayer } from "./ParallaxLayer";
 import {
   GlowBlob,
@@ -144,6 +145,9 @@ export default function About() {
               className="relative h-auto w-full select-none drop-shadow-[0_24px_40px_rgba(0,0,0,0.5)]"
             />
           </motion.div>
+
+          {/* the hero cat, curled asleep at the feet — scroll-scrubbed overlay */}
+          <AboutCat xPct={50} bottomPct={-4} widthPct={104} />
 
           {/* front tier (zIndex 3) — overlaps the figure -------------------- */}
           <ParallaxLayer
