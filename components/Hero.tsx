@@ -12,16 +12,24 @@ const DOTS = [
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const SRC = `${BASE}/video/cat-exit-scrub.mp4`;
 const POSTER = `${BASE}/video/cat-poster.jpg`;
-const TRACK_VH = 300; // scroll distance = cat speed
-const EASE = 0.14; // higher = snappier, lower = silkier
+const TRACK_VH = 300;
+const EASE = 0.14;
 
 /**
  * Frame-perfect, scroll-scrubbed hero (single clip, frozen unless scrolling).
  *   • Not scrolling -> cat is frozen on the current frame (no autoplay/loop).
  *   • Scroll down   -> timeline advances -> cat stands and walks out.
  *   • Scroll up     -> timeline rewinds  -> cat walks back in.
- * A hidden <video> is seeked and its decoded frame painted onto a <canvas> via
- * requestVideoFrameCallback (frame-perfect; falls back to per-rAF draw).
+ *
+ * Mobile fixes:
+ *   • iOS ignores preload="auto" — we call video.load() explicitly so the
+ *     browser starts fetching. preload="metadata" is respected everywhere.
+ *   • iOS blocks currentTime seeks on a video that has never played. We call
+ *     play().then(pause) in onMeta to "unlock" seeking without visible autoplay.
+ *   • readyState guard handles the cached-load race (metadata may already be
+ *     available before the event listener is attached).
+ *   • viewH is cached at resize-time, not re-read per scroll, so the mobile
+ *     address-bar appearing/hiding does not jitter the progress calculation.
  */
 export default function Hero() {
   const trackRef = useRef<HTMLElement>(null);
@@ -49,12 +57,13 @@ export default function Hero() {
     let raf: number | null = null;
     let vw = 0;
     let vh = 0;
+    // Cache viewport height so the mobile address-bar collapsing doesn't
+    // jitter the scroll progress — only update on genuine resize events.
+    let viewH = window.innerHeight;
 
-    // poster painted instantly before the video decodes
     const posterImg = new Image();
     posterImg.src = POSTER;
 
-    // cover-fit a source (video frame or poster) onto the canvas
     function coverDraw(srcW: number, srcH: number, source: CanvasImageSource) {
       const cw = canvas!.width;
       const ch = canvas!.height;
@@ -71,6 +80,7 @@ export default function Hero() {
     }
 
     function resize() {
+      viewH = window.innerHeight;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas!.width = Math.round(canvas!.clientWidth * dpr);
       canvas!.height = Math.round(canvas!.clientHeight * dpr);
@@ -87,28 +97,23 @@ export default function Hero() {
       current += (target - current) * EASE;
       const done = Math.abs(target - current) <= 0.004;
       if (done) current = target;
-      try {
-        video!.currentTime = current;
-      } catch (_) {}
+      try { video!.currentTime = current; } catch (_) {}
       if (!hasRVFC) draw();
       if (!done) raf = requestAnimationFrame(tick);
-      else raf = null; // settle -> frozen frame until next scroll
+      else raf = null;
     }
 
     function onScroll() {
       const rect = track!.getBoundingClientRect();
-      const total = track!.offsetHeight - window.innerHeight;
+      const total = track!.offsetHeight - viewH;
       const p = Math.min(Math.max(-rect.top / total, 0), 1);
-      // vertical rail fills downward as the cat leaves, drains as it returns
       if (railFill) railFill.style.transform = `scaleY(${p})`;
       if (hint) hint.style.opacity = p > 0.05 ? "0" : "1";
       if (!ready || !video!.duration) return;
       target = p * video!.duration;
       if (reduce) {
         current = target;
-        try {
-          video!.currentTime = current;
-        } catch (_) {}
+        try { video!.currentTime = current; } catch (_) {}
         draw();
         return;
       }
@@ -116,20 +121,46 @@ export default function Hero() {
     }
 
     function onMeta() {
+      if (ready) return; // guard against duplicate calls
       ready = true;
       vw = video!.videoWidth;
       vh = video!.videoHeight;
-      video!.pause();
-      video!.currentTime = 0;
       if (hasRVFC) video!.requestVideoFrameCallback(onFrame);
-      resize();
+      // iOS Safari blocks currentTime seeking on a video that has never played.
+      // play() on a muted+playsInline video is allowed without user gesture.
+      // We play then immediately pause to "unlock" seeking without visible playback.
+      video!
+        .play()
+        .then(() => {
+          video!.pause();
+          video!.currentTime = 0;
+          resize();
+        })
+        .catch(() => {
+          // play() rejected (e.g., browser policy, reduced-motion off but video
+          // not ready) — still try to seek; it may work on non-iOS browsers.
+          try { video!.currentTime = 0; } catch (_) {}
+          resize();
+        });
     }
 
     posterImg.addEventListener("load", draw);
     video.addEventListener("loadedmetadata", onMeta);
-    video.addEventListener("seeked", draw); // guarantee a paint after each seek
+    video.addEventListener("seeked", draw);
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", resize);
+
+    // Fast-cache guard: if metadata is already available (repeat visit /
+    // cached), loadedmetadata won't fire again — initialise right now.
+    if (video.readyState >= 1) {
+      onMeta();
+    } else {
+      // Explicit load() call forces mobile browsers (especially iOS Safari,
+      // which ignores preload="auto" on hidden video elements) to start
+      // fetching the video so loadedmetadata fires.
+      video.load();
+    }
+
     resize();
 
     return () => {
@@ -162,19 +193,27 @@ export default function Hero() {
           className="absolute inset-0 block h-full w-full"
           style={{ zIndex: 1 }}
         />
-        {/* hidden source video we seek */}
+
+        {/* hidden source video we seek — kept visible to the layout engine
+            (display:none prevents iOS from loading frames at all) */}
         <video
           ref={videoRef}
           src={SRC}
           poster={POSTER}
           muted
           playsInline
-          preload="auto"
+          preload="metadata"
           aria-hidden
-          style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+          style={{
+            position: "absolute",
+            width: 1,
+            height: 1,
+            opacity: 0,
+            pointerEvents: "none",
+          }}
         />
 
-        {/* Neon depth wash — cyberpunk lighting over the scene */}
+        {/* Neon depth wash */}
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0"
@@ -190,7 +229,7 @@ export default function Hero() {
           style={{ zIndex: 4 }}
         />
 
-        {/* Left rail — location */}
+        {/* Left rail */}
         <div
           className="pointer-events-none absolute left-6 top-0 hidden h-full flex-col items-center justify-center lg:flex"
           style={{ zIndex: 10 }}
@@ -210,13 +249,11 @@ export default function Hero() {
           className="absolute right-7 top-1/2 hidden -translate-y-1/2 flex-col items-center gap-4 lg:flex"
           style={{ zIndex: 10 }}
         >
-          {/* vertical track from first dot centre to last dot centre */}
           <div
             aria-hidden
             className="absolute left-1/2 w-px -translate-x-1/2 overflow-hidden rounded-full bg-fg-muted/25"
             style={{ top: 6, bottom: 6 }}
           >
-            {/* fill: grows downward with scroll (cat leaves), drains on scroll up */}
             <div
               ref={railFillRef}
               className="absolute inset-x-0 top-0 h-full origin-top bg-accent"
@@ -229,7 +266,7 @@ export default function Hero() {
               key={d.id}
               href={`#${d.id}`}
               aria-label={d.label}
-              className="group relative flex h-3 w-3 items-center justify-center cursor-pointer"
+              className="group relative flex h-3 w-3 cursor-pointer items-center justify-center"
             >
               <span
                 className={`block rounded-full transition-all duration-300 ${
@@ -242,7 +279,7 @@ export default function Hero() {
           ))}
         </div>
 
-        {/* Scroll hint — the cat moves only when you do; fades as you scroll */}
+        {/* Scroll hint */}
         <div
           ref={hintRef}
           className="absolute bottom-7 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-2 text-fg-muted"
