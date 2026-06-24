@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { useDepthParallax } from "@/hooks/useDepthParallax";
+import { asset } from "@/lib/asset";
 import { ParallaxLayer } from "./ParallaxLayer";
 import {
   GlowBlob,
@@ -133,7 +134,7 @@ export default function About() {
               }}
             />
             <Image
-              src="/about/isnad-character.png"
+              src={asset("/about/isnad-character.png")}
               alt="Isnad Bin Omar holding a laptop"
               width={1024}
               height={1535}

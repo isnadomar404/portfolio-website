@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { photos } from "@/lib/photos";
 import { useDepthParallax } from "@/hooks/useDepthParallax";
+import { asset } from "@/lib/asset";
 import { GlowBlob } from "./motifs";
 import { Reveal } from "./anim";
 
@@ -101,7 +102,7 @@ function Frame({
       style={style}
     >
       <Image
-        src={photo.src}
+        src={asset(photo.src)}
         alt={photo.alt}
         fill
         sizes="(max-width: 640px) 50vw, (max-width: 1024px) 50vw, 25vw"

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { asset } from "@/lib/asset";
 
 export type GalleryImage = { src: string; alt: string; tint?: string };
 
@@ -53,7 +54,7 @@ export default function InfiniteGallery({
             style={fit === "contain" ? { backgroundColor: img.tint ?? "#0e1320" } : undefined}
           >
             <Image
-              src={img.src}
+              src={asset(img.src)}
               alt={img.alt}
               width={800}
               height={1000}

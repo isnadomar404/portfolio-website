@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { projects, type Project } from "@/lib/projects";
 import { useDepthParallax } from "@/hooks/useDepthParallax";
+import { asset } from "@/lib/asset";
 import { GlowBlob } from "./motifs";
 import { Reveal } from "./anim";
 
@@ -18,7 +19,7 @@ function ProjectCard({ p }: { p: Project }) {
         style={{ backgroundColor: p.tint }}
       >
         <Image
-          src={p.cover}
+          src={asset(p.cover)}
           alt={`${p.title} — ${p.category}`}
           fill
           sizes="340px"

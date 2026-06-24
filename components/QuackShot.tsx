@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Play, ExternalLink } from "lucide-react";
 import { Reveal } from "./anim";
 import { useDepthParallax } from "@/hooks/useDepthParallax";
+import { asset } from "@/lib/asset";
 
 const PLAY_URL = "https://isnadomar404.github.io/quack-shot-play/";
 
@@ -51,7 +52,7 @@ export default function QuackShot() {
           >
             <div className="relative w-full" style={{ aspectRatio: "1600 / 1243" }}>
               <Image
-                src="/images/quack-shot-game.jpg"
+                src={asset("/images/quack-shot-game.jpg")}
                 alt="QUACK SHOT — retro gesture-controlled Duck Hunt remake title screen, ducks flying over a meadow"
                 fill
                 sizes="(max-width: 1024px) 92vw, 1400px"
