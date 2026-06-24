@@ -39,7 +39,9 @@ export default function AboutCat({
 
   useEffect(() => {
     const video = videoRef.current;
-    const section = wrapRef.current?.closest("section");
+    // offsetParent = nearest positioned ancestor (the About <section> with position:relative/isolate).
+    // More reliable than closest("section") when wrapper nesting changes.
+    const section = (wrapRef.current?.offsetParent || wrapRef.current?.parentElement) as HTMLElement | null;
     if (!video || !section) return;
 
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
