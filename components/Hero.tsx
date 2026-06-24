@@ -28,12 +28,14 @@ export default function Hero() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hintRef = useRef<HTMLDivElement>(null);
+  const railFillRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const track = trackRef.current;
     const canvas = canvasRef.current;
     const video = videoRef.current;
     const hint = hintRef.current;
+    const railFill = railFillRef.current;
     if (!track || !canvas || !video) return;
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
@@ -94,12 +96,14 @@ export default function Hero() {
     }
 
     function onScroll() {
-      if (!ready || !video!.duration) return;
       const rect = track!.getBoundingClientRect();
       const total = track!.offsetHeight - window.innerHeight;
       const p = Math.min(Math.max(-rect.top / total, 0), 1);
-      target = p * video!.duration;
+      // vertical rail fills downward as the cat leaves, drains as it returns
+      if (railFill) railFill.style.transform = `scaleY(${p})`;
       if (hint) hint.style.opacity = p > 0.05 ? "0" : "1";
+      if (!ready || !video!.duration) return;
+      target = p * video!.duration;
       if (reduce) {
         current = target;
         try {
@@ -201,23 +205,37 @@ export default function Hero() {
           </span>
         </div>
 
-        {/* Right rail — section dots */}
+        {/* Right rail — section dots threaded by a scroll-progress line */}
         <div
           className="absolute right-7 top-1/2 hidden -translate-y-1/2 flex-col items-center gap-4 lg:flex"
           style={{ zIndex: 10 }}
         >
+          {/* vertical track from first dot centre to last dot centre */}
+          <div
+            aria-hidden
+            className="absolute left-1/2 w-px -translate-x-1/2 overflow-hidden rounded-full bg-fg-muted/25"
+            style={{ top: 6, bottom: 6 }}
+          >
+            {/* fill: grows downward with scroll (cat leaves), drains on scroll up */}
+            <div
+              ref={railFillRef}
+              className="absolute inset-x-0 top-0 h-full origin-top bg-accent"
+              style={{ transform: "scaleY(0)", willChange: "transform" }}
+            />
+          </div>
+
           {DOTS.map((d, i) => (
             <a
               key={d.id}
               href={`#${d.id}`}
               aria-label={d.label}
-              className="group flex h-3 w-3 items-center justify-center cursor-pointer"
+              className="group relative flex h-3 w-3 items-center justify-center cursor-pointer"
             >
               <span
                 className={`block rounded-full transition-all duration-300 ${
                   i === 0
                     ? "h-3 w-3 bg-accent"
-                    : "h-2.5 w-2.5 border border-fg-muted/60 group-hover:border-accent"
+                    : "h-2.5 w-2.5 border border-fg-muted/60 bg-bg group-hover:border-accent"
                 }`}
               />
             </a>
