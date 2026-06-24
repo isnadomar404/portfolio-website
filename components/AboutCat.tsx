@@ -4,32 +4,32 @@ import { useEffect, useRef } from "react";
 import { asset } from "@/lib/asset";
 
 /**
- * AboutCat — the same ginger-and-white cat from the hero, curling up asleep at
- * the standing character's feet. A transparent VP9/alpha WebM scrubbed by scroll:
+ * AboutCat — the same ginger-and-white cat from the hero, scrubbed by scroll.
  *
  *   • Not scrolling      -> frozen on the current frame (never autoplays).
  *   • Scroll DOWN        -> cat walks in from the right, yawns, curls up asleep.
  *   • Scroll UP          -> same clip rewinds -> cat wakes, gets up, walks away.
  *
- * Rendered as a pointer-events:none overlay so the figure + copy underneath stay
- * visible and clickable. Positioned within its parent (the character scene); the
- * scrub progress is measured from the enclosing About <section> travelling
- * through the viewport.
+ * The clip is a WIDE SHORT STRIP (1056x528) where the cat is always GROUNDED at
+ * the bottom of the frame. It sits BOTTOM-LEFT in the About section's negative
+ * space, below the headline/bio/tags, aligned with the text's left margin. A
+ * baked CSS drop-shadow grounds it. pointer-events:none so it never blocks UI;
+ * scrub progress is measured from the enclosing About <section>.
  *
  * Safari can't decode VP9-with-alpha, so it gracefully shows the transparent
  * poster (curled cat) instead of scrubbing.
  */
 export default function AboutCat({
-  /** horizontal centre of the cat, % of parent width */
-  xPct = 50,
-  /** cat's bottom from the parent bottom, % of parent height */
-  bottomPct = 0,
-  /** overlay width, % of parent width (the clip has padding around the cat) */
-  widthPct = 96,
+  /** horizontal centre of the cat, % of section width (bottom-left, under the text) */
+  leftPct = 18,
+  /** cat's BOTTOM edge above the section bottom, % (rests on the floor) */
+  bottomPct = 4,
+  /** cat strip width, % of section width */
+  widthPct = 15,
   /** scrub smoothing — higher = snappier, lower = silkier */
   ease = 0.14,
 }: {
-  xPct?: number;
+  leftPct?: number;
   bottomPct?: number;
   widthPct?: number;
   ease?: number;
@@ -108,12 +108,13 @@ export default function AboutCat({
       aria-hidden
       className="absolute"
       style={{
-        left: `${xPct}%`,
+        left: `${leftPct}%`,
         bottom: `${bottomPct}%`,
         width: `${widthPct}%`,
         transform: "translateX(-50%)",
         pointerEvents: "none",
         zIndex: 4,
+        lineHeight: 0,
       }}
     >
       <video
@@ -123,6 +124,7 @@ export default function AboutCat({
         preload="auto"
         poster={asset("/video/cat-sleep-poster.png")}
         className="block h-auto w-full"
+        style={{ filter: "drop-shadow(0 8px 10px rgba(0,0,0,0.55))" }}
       >
         <source src={asset("/video/cat-sleep.webm")} type="video/webm" />
       </video>

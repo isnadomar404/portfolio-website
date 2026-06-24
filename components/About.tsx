@@ -146,9 +146,6 @@ export default function About() {
             />
           </motion.div>
 
-          {/* the hero cat, curled asleep at the feet — scroll-scrubbed overlay */}
-          <AboutCat xPct={50} bottomPct={-4} widthPct={104} />
-
           {/* front tier (zIndex 3) — overlaps the figure -------------------- */}
           <ParallaxLayer
             ariaHidden
@@ -184,6 +181,9 @@ export default function About() {
           </ParallaxLayer>
         </div>
       </div>
+
+      {/* the hero cat, grounded bottom-left under the copy — scroll-scrubbed */}
+      <AboutCat />
     </section>
   );
 }
