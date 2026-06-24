@@ -271,6 +271,51 @@ body > * {
     transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.5s ease;
 }
 
+/* ───────────────────────── Sticky stacked case-study deck ─────────────────────────
+   Cards are sticky siblings in one containing block. Each sticks a touch lower
+   than the last (STEP, set inline) so covered cards peek in a stepped edge. The
+   margin-bottom is the per-card scroll runway (~one viewport before the next
+   lands). Last card has no runway so the page flows straight into the next
+   section — no trapped pin, no dead gap. */
+.case-stack {
+  display: block;
+}
+.case-card {
+  position: sticky;
+  display: flex;
+  min-height: 78vh;
+  margin-bottom: 17vh;
+  /* Opaque enough that a covering card fully hides the ones beneath — only the
+     stepped peek edge shows. (The site-wide .glass fill is too transparent for
+     a stacking deck.) */
+  background: linear-gradient(180deg, rgba(16, 22, 38, 0.96), rgba(11, 15, 26, 0.97));
+  border: 1px solid var(--card-stroke);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 30px 60px -30px rgba(0, 0, 0, 0.9);
+}
+.case-card:last-child {
+  margin-bottom: 0;
+}
+/* inner grid fills the card so text can vertically centre */
+.case-card > div {
+  flex: 1;
+}
+
+@media (max-width: 1023px) and (min-width: 768px) {
+  .case-card {
+    min-height: 70vh;
+    margin-bottom: 12vh;
+  }
+}
+
+/* Mobile + reduced-motion: plain vertical list — no pinning, no recede. */
+.case-card--static {
+  position: static;
+  min-height: 0;
+  margin-bottom: 2rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -282,5 +327,13 @@ body > * {
   }
   .marquee-track {
     animation: none !important;
+  }
+  /* belt-and-braces: never pin/recede under reduced motion */
+  .case-card {
+    position: static !important;
+    min-height: 0 !important;
+    margin-bottom: 2rem !important;
+    transform: none !important;
+    filter: none !important;
   }
 }
