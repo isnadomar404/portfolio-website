@@ -72,6 +72,7 @@ export default function Hero() {
     let raf: number | null = null;
     let vw = 0;
     let vh = 0;
+    let seeking = false; // a currentTime seek is in flight — don't queue another
 
     const activeVideo = () => (active === "exit" ? exit : ret);
 
@@ -117,7 +118,12 @@ export default function Hero() {
       current += (target - current) * EASE;
       const done = Math.abs(target - current) <= 0.004;
       if (done) current = target;
-      try { v.currentTime = current; } catch (_) {}
+      // Coalesce seeks: only issue a new one once the previous has landed.
+      // Writing currentTime every frame mid-seek thrashes the decoder → stutter.
+      if (!seeking) {
+        seeking = true;
+        try { v.currentTime = current; } catch (_) { seeking = false; }
+      }
       if (!hasRVFC) draw();
       if (!done) raf = requestAnimationFrame(tick);
       else raf = null;
@@ -158,6 +164,7 @@ export default function Hero() {
           // reversing after the cat left → hand off to the forward return clip
           active = "return";
           goneLatched = false;
+          seeking = false; // new clip is active — don't wait on the old clip's seek
           vw = ret!.videoWidth;
           vh = ret!.videoHeight;
           current = 0; // return t=0 = cat off-screen, matches the exit clip's end
@@ -169,6 +176,7 @@ export default function Hero() {
           // heading back down after the cat sat → hand off to the forward exit clip
           active = "exit";
           seatedLatched = false;
+          seeking = false; // new clip is active — don't wait on the old clip's seek
           vw = exit!.videoWidth;
           vh = exit!.videoHeight;
           current = 0; // exit t=0 = cat seated, matches the return clip's end
@@ -213,11 +221,18 @@ export default function Hero() {
       ret!.currentTime = 0;
     }
 
+    // seek landed → clear the in-flight flag, paint, and chase the latest target
+    function onSeeked() {
+      seeking = false;
+      if (!hasRVFC) draw();
+      if (Math.abs(target - current) > 0.004 && !raf) raf = requestAnimationFrame(tick);
+    }
+
     posterImg.addEventListener("load", draw);
     exit.addEventListener("loadedmetadata", onMetaExit);
     ret.addEventListener("loadedmetadata",  onMetaReturn);
-    exit.addEventListener("seeked", draw);
-    ret.addEventListener("seeked",  draw);
+    exit.addEventListener("seeked", onSeeked);
+    ret.addEventListener("seeked",  onSeeked);
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", resize);
 
@@ -230,8 +245,8 @@ export default function Hero() {
       posterImg.removeEventListener("load", draw);
       exit.removeEventListener("loadedmetadata", onMetaExit);
       ret.removeEventListener("loadedmetadata",  onMetaReturn);
-      exit.removeEventListener("seeked", draw);
-      ret.removeEventListener("seeked",  draw);
+      exit.removeEventListener("seeked", onSeeked);
+      ret.removeEventListener("seeked",  onSeeked);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", resize);
       if (raf) cancelAnimationFrame(raf);
