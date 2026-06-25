@@ -4,41 +4,48 @@ import { useEffect, useRef } from "react";
 import { asset } from "@/lib/asset";
 
 /**
- * AboutCat — canvas-composited transparent cat overlay for the About section.
+ * AboutCat — UNIVERSAL transparent cat overlay (Chrome, Firefox, Safari, every browser).
  *
- * WHY CANVAS: a visible <video> element paints its decoded frame (or poster)
- * directly, so any alpha hiccup or unseeked frame shows up as an opaque "box".
- * Drawing to a canvas with { alpha:true } + clearRect() every frame guarantees
- * true per-frame transparency and means no element can ever leak a box.
+ * WHY THIS APPROACH
+ * -----------------
+ * Transparent video has no single cross-browser format:
+ *   • VP9-alpha .webm → Chrome/Firefox only (Safari paints an OPAQUE box — the bug).
+ *   • HEVC-alpha .mov → Safari only.
+ * So we stop relying on the browser's alpha entirely. Each clip is ONE plain (opaque)
+ * H.264 MP4 that stacks COLOR on top and an ALPHA MATTE (white-on-black) on the bottom.
+ * A <canvas> composites them itself (color × matte → transparent). Every browser decodes
+ * plain H.264 → truly universal, no Safari box, ever. The only visible element is the
+ * canvas; the source videos are parked offscreen and never shown, so no raw frame leaks.
  *
- * CROSS-BROWSER ALPHA: the hidden feeder <video>s carry BOTH sources —
- *   • cat-*.mov  (HEVC + alpha)  → Safari / iOS  (no VP9-alpha support)
- *   • cat-*.webm (VP9 + alpha)   → Chrome / Firefox
- * The browser decodes whichever it supports; drawImage() preserves that alpha.
+ * BEHAVIOR
+ * --------
+ *   • Default: the cat sits SLEEPING (rest frame of the sleep clip).
+ *   • Scroll DOWN: nothing changes — cat stays asleep.
+ *   • Scroll UP (About → back toward Hero): the cat WAKES and walks away, played FORWARD
+ *     (cat-wake), scrubbed by upward progress. Scroll down again re-settles it asleep.
  *
- * SMOOTH SCRUB (no jank): scroll sets a `target` time only. A single seek loop
- * COALESCES seeks — it never issues a new seek while one is pending; when the
- * pending seek finishes it jumps straight to the newest target. This avoids the
- * seek-queue thrash that makes per-scroll-event currentTime writes stutter.
- * Painting is driven by requestVideoFrameCallback, decoupled from seek timing.
+ * PIN CONTEXT
+ * -----------
+ * About is a pinned-scrub: outer <section height:220svh> with a sticky inner stage.
+ * Progress MUST come from the outer section (closest("section")) — offsetParent returns
+ * the sticky child whose rect.top is pinned at 0, which would freeze progress at 0.
  *
- * CLIPS (both all-keyframe, transparent):
- *   • cat-sleep.webm/.mov — walk in from left → settle.  (scroll DOWN scrubs in)
- *   • cat-wake.webm/.mov  — wake → walk OUT left.         (scroll UP plays out)
+ * ASSETS (stacked color-over-matte, all-keyframe H.264, 960×1760 → 960×880 keyed):
+ *   • /video/cat-sleep-stacked.mp4 — walk-in → sleep. Last frame = resting cat (idle).
+ *   • /video/cat-wake-stacked.mp4  — wake → walk away (forward). Last frame = empty.
  */
-
 interface AboutCatProps {
-  leftPct?: number;
-  bottomPct?: number;
-  widthPct?: number;
-  introSeconds?: number;
+  leftPct?: number;   // horizontal anchor, % of section width
+  bottomPct?: number; // overlay bottom from section bottom, % of section height
+  widthPct?: number;  // overlay width, % of section width
+  ease?: number;      // scrub smoothing (0..1; higher = snappier, 1 = rigid 1:1)
 }
 
 export default function AboutCat({
   leftPct = 0,
   bottomPct = 4,
   widthPct = 22,
-  introSeconds = 3.2,
+  ease = 0.16,
 }: AboutCatProps) {
   const wrapRef   = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -52,188 +59,170 @@ export default function AboutCat({
     const wake   = wakeRef.current;
     if (!wrap || !canvas || !sleep || !wake) return;
 
-    // Pin-track = the outer TALL section (its rect.top advances through the
-    // runway). offsetParent would return the sticky child whose rect.top is
-    // pinned at 0 → progress always 0.
+    // Outer TALL section drives progress — NOT offsetParent (the sticky child).
     const track =
       (wrap.closest("section") as HTMLElement | null) ?? wrap.parentElement;
     if (!track) return;
 
     const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) return;
-
     const reduce  = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const hasRVFC = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
 
-    let readyS = false;
-    let phase: "armed" | "intro" | "ready" = "armed";
+    // offscreen scratch canvases for the keying math
+    const colorC = document.createElement("canvas");
+    const maskC  = document.createElement("canvas");
+    const outC   = document.createElement("canvas");
+    const colorCtx = colorC.getContext("2d", { willReadFrequently: true })!;
+    const maskCtx  = maskC.getContext("2d", { willReadFrequently: true })!;
+    const outCtx   = outC.getContext("2d", { willReadFrequently: true })!;
+
+    let readySleep = false;
+    let readyWake  = false;
     let mode: "sleep" | "wake" = "sleep";
+    let pTarget = 1;            // 1 = fully settled asleep (sleep clip at its end frame)
+    let cur = 1;
+    let running = false;
     let lastScroll = window.scrollY;
-    let vw = 0, vh = 0;
+    let pendingPaint = false;
 
-    // --- per-video seek-coalescing state ---
-    // target = where we WANT to be; seeking = a seek is in flight. When it lands
-    // we re-seek only if the target has since moved. One seek per settled frame.
-    const st = {
-      sleep: { target: 0, seeking: false },
-      wake:  { target: 0, seeking: false },
-    };
     const activeVideo = () => (mode === "sleep" ? sleep : wake);
-    const stateOf = (v: HTMLVideoElement) => (v === sleep ? st.sleep : st.wake);
 
-    let introRaf: number | null = null;
-    let introStart = 0;
+    // Composite the active stacked frame (color top + matte bottom) → keyed RGBA.
+    const composite = () => {
+      const src = activeVideo();
+      const fullW = src.videoWidth;
+      const fullH = src.videoHeight;
+      if (!fullW || !fullH) return;
+      const halfH = Math.floor(fullH / 2);
 
-    // --- canvas paint ---
-    function draw() {
-      const cw = canvas!.width, ch = canvas!.height;
-      ctx!.clearRect(0, 0, cw, ch);          // transparent every frame
-      if (!vw || !vh) return;
-      const v = activeVideo();
-      const scale = Math.max(cw / vw, ch / vh);
-      const dw = vw * scale, dh = vh * scale;
-      ctx!.drawImage(v, (cw - dw) / 2, (ch - dh) / 2, dw, dh);
-    }
+      if (colorC.width !== fullW || colorC.height !== halfH) {
+        colorC.width = fullW; colorC.height = halfH;
+        maskC.width  = fullW; maskC.height  = halfH;
+        outC.width   = fullW; outC.height   = halfH;
+        canvas.width = fullW; canvas.height = halfH;
+      }
 
-    function resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas!.width  = Math.round(canvas!.clientWidth  * dpr);
-      canvas!.height = Math.round(canvas!.clientHeight * dpr);
-      draw();
-    }
+      colorCtx.drawImage(src, 0, 0, fullW, halfH, 0, 0, fullW, halfH);    // top = color
+      maskCtx.drawImage(src, 0, halfH, fullW, halfH, 0, 0, fullW, halfH); // bottom = matte
 
-    function paintLoop() {
-      draw();
-      if (hasRVFC) activeVideo().requestVideoFrameCallback(paintLoop);
-    }
-    function ensurePaint() {
-      if (hasRVFC) activeVideo().requestVideoFrameCallback(paintLoop);
-    }
+      const color = colorCtx.getImageData(0, 0, fullW, halfH);
+      const mask  = maskCtx.getImageData(0, 0, fullW, halfH);
+      const cd = color.data;
+      const md = mask.data;
+      for (let i = 0; i < cd.length; i += 4) cd[i + 3] = md[i]; // matte luma → alpha
+      outCtx.putImageData(color, 0, 0);
 
-    // Coalesced seek: only one in flight; chase the latest target on landing.
-    function pump(v: HTMLVideoElement) {
-      const s = stateOf(v);
-      if (s.seeking) return;
-      const want = Math.max(0, Math.min(s.target, v.duration || s.target));
-      if (Math.abs(v.currentTime - want) < 0.012) { if (!hasRVFC) draw(); return; }
-      s.seeking = true;
-      try { v.currentTime = want; } catch { s.seeking = false; }
-    }
-    const onSeeked = (v: HTMLVideoElement) => () => {
-      stateOf(v).seeking = false;
-      if (!hasRVFC) draw();
-      // target may have advanced while seeking → chase it
-      const s = stateOf(v);
-      if (Math.abs(v.currentTime - Math.min(s.target, v.duration || s.target)) >= 0.012) pump(v);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(outC, 0, 0);
+      pendingPaint = false;
     };
 
-    // --- intro: rAF playthrough of the SLEEP clip (cat walks in, settles) ---
-    const introTick = (now: number) => {
-      if (phase !== "intro") return;
-      if (!introStart) introStart = now;
-      const dur = sleep.duration || 8;
-      const k = Math.min((now - introStart) / 1000 / introSeconds, 1);
-      const eased = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
-      st.sleep.target = eased * dur;
-      pump(sleep);
-      if (k < 1) { introRaf = requestAnimationFrame(introTick); }
-      else { phase = "ready"; st.sleep.target = dur; introRaf = null; }
+    const timeFor = (src: HTMLVideoElement, p: number) => {
+      const dur = src.duration || 0;
+      return Math.max(0, Math.min(p * dur, dur - 0.001));
     };
 
-    const startIntro = () => {
-      if (!readyS || phase !== "armed") return;
-      mode = "sleep";
-      if (reduce) { phase = "ready"; st.sleep.target = sleep.duration || 8; pump(sleep); return; }
-      phase = "intro";
-      introStart = 0;
-      introRaf = requestAnimationFrame(introTick);
+    const armPaint = (src: HTMLVideoElement) => {
+      if (hasRVFC) src.requestVideoFrameCallback(() => composite());
+      else requestAnimationFrame(() => composite());
     };
 
-    // --- scroll: set target only; the seek loop chases it smoothly ---
+    // Single eased rAF loop, one seek per frame, paint on decode.
+    const loop = () => {
+      cur += (pTarget - cur) * ease;
+      const settled = Math.abs(pTarget - cur) <= 0.0008;
+      if (settled) cur = pTarget;
+
+      const src = activeVideo();
+      const t = timeFor(src, cur);
+      if (Math.abs(src.currentTime - t) > 0.001) {
+        pendingPaint = true;
+        try { src.currentTime = t; } catch { /* ignore */ }
+        armPaint(src);
+      }
+      if (settled && !pendingPaint) { running = false; return; }
+      requestAnimationFrame(loop);
+    };
+
+    const kick = () => {
+      if (reduce) {
+        const src = activeVideo();
+        try { src.currentTime = timeFor(src, pTarget); } catch { /* ignore */ }
+        armPaint(src);
+        return;
+      }
+      if (!running) { running = true; requestAnimationFrame(loop); }
+    };
+
     const onScroll = () => {
-      if (phase !== "ready") { lastScroll = window.scrollY; return; }
+      if (!readySleep || !readyWake) { lastScroll = window.scrollY; return; }
       const goingUp = window.scrollY < lastScroll;
       lastScroll = window.scrollY;
 
+      // Pinned-scrub progress from the outer section: 0 at top of runway, 1 at end.
       const rect = track.getBoundingClientRect();
       const scrollable = Math.max(track.offsetHeight - window.innerHeight, 1);
       const p = Math.min(Math.max(-rect.top / scrollable, 0), 1);
 
-      // Direction-aware clip switch (canvas just draws whichever is active —
-      // no visibility toggling, so the cat can never blink out or box up).
-      if (goingUp && mode === "sleep") {
-        mode = "wake";
-        st.wake.target = 0;       // wake t=0 = cat asleep (matches sleep end)
-        ensurePaint();
-      } else if (!goingUp && mode === "wake") {
-        mode = "sleep";
-        st.sleep.target = sleep.duration || 8;
-        ensurePaint();
+      if (goingUp) {
+        // scrolling UP toward hero → WAKE and walk away, forward.
+        if (mode !== "wake") {
+          mode = "wake";
+          cur = 0;            // wake starts at asleep pose (matches sleep clip's end)
+          pendingPaint = true;
+          armPaint(wake);
+        }
+        // as you scroll up, p shrinks → (1 - p) grows → wake plays forward.
+        pTarget = Math.min(Math.max(1 - p, 0), 1);
+      } else {
+        // scrolling DOWN → cat stays asleep; settle to the sleep clip's rest frame.
+        if (mode !== "sleep") {
+          mode = "sleep";
+          cur = 1;
+          pendingPaint = true;
+          armPaint(sleep);
+        }
+        pTarget = 1;
       }
-
-      const v = activeVideo();
-      const dur = v.duration || 8;
-      // SLEEP: p=0 → t=dur (asleep), p=1 → t=0 (off-screen). Reverse-mapped.
-      // WAKE:  p=0 → t=0 (asleep), p=1 → t=dur (walked out left). Forward.
-      stateOf(v).target = mode === "sleep" ? (1 - p) * dur : p * dur;
-      pump(v);
+      kick();
     };
 
-    // --- ready handlers ---
-    const onReadyS = () => {
-      if (sleep.readyState < 1 || readyS) return;
-      readyS = true;
-      vw = sleep.videoWidth; vh = sleep.videoHeight;
+    const onMetaSleep = () => {
+      if (sleep.readyState < 1 || readySleep) return;
+      readySleep = true;
       sleep.pause();
-      st.sleep.target = 0;
-      try { sleep.currentTime = 0; } catch { /**/ }
-      resize();
-      ensurePaint();
+      try { sleep.currentTime = sleep.duration || 0; } catch { /* ignore */ } // rest frame
+      armPaint(sleep);
     };
-    const onReadyW = () => {
-      if (wake.readyState < 1) return;
+    const onMetaWake = () => {
+      if (wake.readyState < 1 || readyWake) return;
+      readyWake = true;
       wake.pause();
-      try { wake.currentTime = 0; } catch { /**/ }
+      try { wake.currentTime = 0; } catch { /* ignore */ }
     };
 
-    const seekedSleep = onSeeked(sleep);
-    const seekedWake  = onSeeked(wake);
+    const onSeeked = () => composite();
 
-    sleep.addEventListener("loadedmetadata", onReadyS);
-    wake.addEventListener("loadedmetadata", onReadyW);
-    sleep.addEventListener("seeked", seekedSleep);
-    wake.addEventListener("seeked", seekedWake);
-    if (sleep.readyState >= 1) onReadyS();
-    if (wake.readyState >= 1) onReadyW();
-
-    track.addEventListener("pointerenter", startIntro);
-    let io: IntersectionObserver | null = null;
-    if (typeof IntersectionObserver !== "undefined") {
-      io = new IntersectionObserver(
-        (entries) => {
-          for (const e of entries)
-            if (e.isIntersecting && e.intersectionRatio > 0.35) startIntro();
-        },
-        { threshold: [0, 0.35, 0.6] }
-      );
-      io.observe(track);
-    }
+    sleep.addEventListener("loadedmetadata", onMetaSleep);
+    wake.addEventListener("loadedmetadata", onMetaWake);
+    sleep.addEventListener("seeked", onSeeked);
+    wake.addEventListener("seeked", onSeeked);
+    if (sleep.readyState >= 1) onMetaSleep();
+    if (wake.readyState >= 1) onMetaWake();
 
     window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", resize);
+    window.addEventListener("resize", onScroll);
 
     return () => {
-      sleep.removeEventListener("loadedmetadata", onReadyS);
-      wake.removeEventListener("loadedmetadata", onReadyW);
-      sleep.removeEventListener("seeked", seekedSleep);
-      wake.removeEventListener("seeked", seekedWake);
-      track.removeEventListener("pointerenter", startIntro);
+      sleep.removeEventListener("loadedmetadata", onMetaSleep);
+      wake.removeEventListener("loadedmetadata", onMetaWake);
+      sleep.removeEventListener("seeked", onSeeked);
+      wake.removeEventListener("seeked", onSeeked);
       window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", resize);
-      if (io) io.disconnect();
-      if (introRaf !== null) cancelAnimationFrame(introRaf);
+      window.removeEventListener("resize", onScroll);
     };
-  }, [introSeconds]);
+  }, [ease]);
 
   return (
     <div
@@ -241,46 +230,34 @@ export default function AboutCat({
       aria-hidden="true"
       style={{
         position: "absolute",
-        // -2rem cancels the section's left padding so the cat hugs the true edge
+        // -2rem cancels the section's px-5 padding so the cat hugs the true page edge
         left: `calc(${leftPct}% - 2rem)`,
         bottom: `${bottomPct}%`,
         width: `${widthPct}%`,
-        aspectRatio: "1440 / 1320",
+        overflow: "hidden",
         pointerEvents: "none",
         zIndex: 3,
+        lineHeight: 0,
+        filter: "drop-shadow(0 8px 10px rgba(0,0,0,0.55))",
       }}
     >
-      {/* Canvas — the ONLY visible layer. alpha:true + clearRect() = real
-          transparency; no element can ever paint an opaque box. */}
-      <canvas
-        ref={canvasRef}
-        style={{
-          position: "absolute",
-          inset: 0,
-          width: "100%",
-          height: "100%",
-          filter: "drop-shadow(0 8px 10px rgba(0,0,0,0.55))",
-        }}
-      />
-      {/* Hidden feeder videos — decoded & seeked, painted onto the canvas, never
-          shown. Parked offscreen at 1×1 so a stray paint can't leak. Each lists
-          .mov (Safari HEVC-alpha) BEFORE .webm (Chrome/FF VP9-alpha). */}
+      {/* The ONLY visible element — keyed by JS → transparent in every browser. */}
+      <canvas ref={canvasRef} style={{ width: "100%", height: "auto", display: "block" }} />
+
+      {/* Hidden source videos — plain opaque H.264, decoded but never shown.
+          Parked offscreen so a stray paint can never leak. */}
       <video
         ref={sleepRef}
+        src={asset("/video/cat-sleep-stacked.mp4")}
         muted playsInline preload="auto"
-        style={{ position: "absolute", left: -9999, top: 0, width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
-      >
-        <source src={asset("/video/cat-sleep.mov")}  type='video/quicktime; codecs="hvc1"' />
-        <source src={asset("/video/cat-sleep.webm")} type="video/webm" />
-      </video>
+        style={{ position: "absolute", width: 1, height: 1, left: -9999, top: 0, opacity: 0, pointerEvents: "none" }}
+      />
       <video
         ref={wakeRef}
+        src={asset("/video/cat-wake-stacked.mp4")}
         muted playsInline preload="auto"
-        style={{ position: "absolute", left: -9999, top: 0, width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
-      >
-        <source src={asset("/video/cat-wake.mov")}  type='video/quicktime; codecs="hvc1"' />
-        <source src={asset("/video/cat-wake.webm")} type="video/webm" />
-      </video>
+        style={{ position: "absolute", width: 1, height: 1, left: -9999, top: 0, opacity: 0, pointerEvents: "none" }}
+      />
     </div>
   );
 }
