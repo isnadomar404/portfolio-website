@@ -8,31 +8,35 @@ import { asset } from "@/lib/asset";
  *
  * WHY THIS APPROACH
  * -----------------
- * Transparent video has no single cross-browser format:
- *   • VP9-alpha .webm → Chrome/Firefox only (Safari paints an OPAQUE box — the bug).
- *   • HEVC-alpha .mov → Safari only.
- * So we stop relying on the browser's alpha entirely. Each clip is ONE plain (opaque)
- * H.264 MP4 that stacks COLOR on top and an ALPHA MATTE (white-on-black) on the bottom.
- * A <canvas> composites them itself (color × matte → transparent). Every browser decodes
- * plain H.264 → truly universal, no Safari box, ever. The only visible element is the
- * canvas; the source videos are parked offscreen and never shown, so no raw frame leaks.
+ * Transparent video has no single cross-browser format (VP9-alpha .webm is
+ * Chrome/FF-only; HEVC-alpha .mov is Safari-only). So we don't rely on the
+ * browser's alpha at all. Each clip is ONE plain (opaque) H.264 MP4 that stacks
+ * COLOR on top and an ALPHA MATTE (white-on-black) on the bottom; a <canvas>
+ * composites them itself (matte luma → color alpha). Plain H.264 decodes
+ * everywhere → no Safari box, ever.
+ *
+ * RENDERING — self-correcting continuous loop
+ * -------------------------------------------
+ * The visible canvas is driven by a single requestAnimationFrame loop that runs
+ * while the section is in view. EVERY tick re-keys the CURRENT decoded video
+ * frame from scratch (clearRect + key + draw). Because the canvas is rebuilt
+ * every frame, no stale or un-keyed (opaque "box") frame can ever persist — a
+ * bad frame is overwritten on the very next tick, and the loop always settles on
+ * a correctly-keyed frame. (The earlier RVFC/"paint-once" path could leave a
+ * stale opaque frame as the last paint — that was the box bug.)
  *
  * BEHAVIOR
  * --------
  *   • Default: the cat sits SLEEPING (rest frame of the sleep clip).
- *   • Scroll DOWN: nothing changes — cat stays asleep.
- *   • Scroll UP (About → back toward Hero): the cat WAKES and walks away, played FORWARD
- *     (cat-wake), scrubbed by upward progress. Scroll down again re-settles it asleep.
+ *   • Scroll DOWN: stays asleep.
+ *   • Scroll UP (About → Hero): cat WAKES and walks away (cat-wake forward).
  *
- * PIN CONTEXT
- * -----------
- * About is a pinned-scrub: outer <section height:220svh> with a sticky inner stage.
- * Progress MUST come from the outer section (closest("section")) — offsetParent returns
- * the sticky child whose rect.top is pinned at 0, which would freeze progress at 0.
+ * PIN CONTEXT — progress from the outer <section> (closest("section")), NOT
+ * offsetParent (which is the sticky child, frozen at rect.top 0).
  *
  * ASSETS (stacked color-over-matte, all-keyframe H.264, 960×1760 → 960×880 keyed):
- *   • /video/cat-sleep-stacked.mp4 — walk-in → sleep. Last frame = resting cat (idle).
- *   • /video/cat-wake-stacked.mp4  — wake → walk away (forward). Last frame = empty.
+ *   • /video/cat-sleep-stacked.mp4 — walk-in → sleep. Last frame = resting cat.
+ *   • /video/cat-wake-stacked.mp4  — wake → walk away. Last frame = empty.
  */
 interface AboutCatProps {
   leftPct?: number;   // horizontal anchor, % of section width
@@ -66,8 +70,7 @@ export default function AboutCat({
 
     const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) return;
-    const reduce  = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const hasRVFC = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     // offscreen scratch canvases for the keying math
     const colorC = document.createElement("canvas");
@@ -80,15 +83,19 @@ export default function AboutCat({
     let readySleep = false;
     let readyWake  = false;
     let mode: "sleep" | "wake" = "sleep";
-    let pTarget = 1;            // 1 = fully settled asleep (sleep clip at its end frame)
+    let pTarget = 1;            // 1 = settled asleep; 0..1 = wake progress
     let cur = 1;
-    let running = false;
     let lastScroll = window.scrollY;
-    let pendingPaint = false;
+    let inView = false;
+    let raf: number | null = null;
+    let tail = 0;              // extra frames to keep compositing after settling
+    let seeking = false;       // a coalesced seek is in flight on the active video
 
     const activeVideo = () => (mode === "sleep" ? sleep : wake);
 
     // Composite the active stacked frame (color top + matte bottom) → keyed RGBA.
+    // Keys the CURRENT decoded frame; on any failure leaves the canvas cleared
+    // (transparent) rather than ever showing the raw opaque frame.
     const composite = () => {
       const src = activeVideo();
       const fullW = src.videoWidth;
@@ -106,16 +113,19 @@ export default function AboutCat({
       colorCtx.drawImage(src, 0, 0, fullW, halfH, 0, 0, fullW, halfH);    // top = color
       maskCtx.drawImage(src, 0, halfH, fullW, halfH, 0, 0, fullW, halfH); // bottom = matte
 
-      const color = colorCtx.getImageData(0, 0, fullW, halfH);
-      const mask  = maskCtx.getImageData(0, 0, fullW, halfH);
-      const cd = color.data;
-      const md = mask.data;
+      let color: ImageData, mask: ImageData;
+      try {
+        color = colorCtx.getImageData(0, 0, fullW, halfH);
+        mask  = maskCtx.getImageData(0, 0, fullW, halfH);
+      } catch {
+        return; // tainted/unavailable — never fall back to the raw opaque frame
+      }
+      const cd = color.data, md = mask.data;
       for (let i = 0; i < cd.length; i += 4) cd[i + 3] = md[i]; // matte luma → alpha
       outCtx.putImageData(color, 0, 0);
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(outC, 0, 0);
-      pendingPaint = false;
     };
 
     const timeFor = (src: HTMLVideoElement, p: number) => {
@@ -123,69 +133,53 @@ export default function AboutCat({
       return Math.max(0, Math.min(p * dur, dur - 0.001));
     };
 
-    const armPaint = (src: HTMLVideoElement) => {
-      if (hasRVFC) src.requestVideoFrameCallback(() => composite());
-      else requestAnimationFrame(() => composite());
-    };
+    // Self-correcting render loop. Runs while in view; re-keys every tick so an
+    // un-keyed/opaque frame can never persist.
+    const frame = () => {
+      raf = null;
+      if (!inView) return;
 
-    // Single eased rAF loop, one seek per frame, paint on decode.
-    const loop = () => {
-      cur += (pTarget - cur) * ease;
+      const src = activeVideo();
+      cur += (pTarget - cur) * (reduce ? 1 : ease);
       const settled = Math.abs(pTarget - cur) <= 0.0008;
       if (settled) cur = pTarget;
 
-      const src = activeVideo();
+      // coalesced seek: only one in flight; chase the latest target on 'seeked'
       const t = timeFor(src, cur);
-      if (Math.abs(src.currentTime - t) > 0.001) {
-        pendingPaint = true;
-        try { src.currentTime = t; } catch { /* ignore */ }
-        armPaint(src);
+      if (!seeking && Math.abs(src.currentTime - t) > 0.005) {
+        seeking = true;
+        try { src.currentTime = t; } catch { seeking = false; }
       }
-      if (settled && !pendingPaint) { running = false; return; }
-      requestAnimationFrame(loop);
+
+      composite(); // always re-key the current decoded frame
+
+      if (!settled) tail = 12;
+      else if (tail > 0) tail--;
+      if (!settled || tail > 0 || seeking) raf = requestAnimationFrame(frame);
     };
 
-    const kick = () => {
-      if (reduce) {
-        const src = activeVideo();
-        try { src.currentTime = timeFor(src, pTarget); } catch { /* ignore */ }
-        armPaint(src);
-        return;
-      }
-      if (!running) { running = true; requestAnimationFrame(loop); }
-    };
+    const ensureLoop = () => { if (raf === null && inView) raf = requestAnimationFrame(frame); };
+
+    const onSeeked = () => { seeking = false; ensureLoop(); };
 
     const onScroll = () => {
       if (!readySleep || !readyWake) { lastScroll = window.scrollY; return; }
       const goingUp = window.scrollY < lastScroll;
       lastScroll = window.scrollY;
 
-      // Pinned-scrub progress from the outer section: 0 at top of runway, 1 at end.
       const rect = track.getBoundingClientRect();
       const scrollable = Math.max(track.offsetHeight - window.innerHeight, 1);
       const p = Math.min(Math.max(-rect.top / scrollable, 0), 1);
 
       if (goingUp) {
-        // scrolling UP toward hero → WAKE and walk away, forward.
-        if (mode !== "wake") {
-          mode = "wake";
-          cur = 0;            // wake starts at asleep pose (matches sleep clip's end)
-          pendingPaint = true;
-          armPaint(wake);
-        }
-        // as you scroll up, p shrinks → (1 - p) grows → wake plays forward.
-        pTarget = Math.min(Math.max(1 - p, 0), 1);
+        if (mode !== "wake")  { mode = "wake";  cur = 0; seeking = false; }
+        pTarget = Math.min(Math.max(1 - p, 0), 1); // scroll up → wake plays forward
       } else {
-        // scrolling DOWN → cat stays asleep; settle to the sleep clip's rest frame.
-        if (mode !== "sleep") {
-          mode = "sleep";
-          cur = 1;
-          pendingPaint = true;
-          armPaint(sleep);
-        }
-        pTarget = 1;
+        if (mode !== "sleep") { mode = "sleep"; cur = 1; seeking = false; }
+        pTarget = 1;                               // asleep at rest
       }
-      kick();
+      tail = 12;
+      ensureLoop();
     };
 
     const onMetaSleep = () => {
@@ -193,7 +187,7 @@ export default function AboutCat({
       readySleep = true;
       sleep.pause();
       try { sleep.currentTime = sleep.duration || 0; } catch { /* ignore */ } // rest frame
-      armPaint(sleep);
+      tail = 30; ensureLoop();
     };
     const onMetaWake = () => {
       if (wake.readyState < 1 || readyWake) return;
@@ -202,14 +196,29 @@ export default function AboutCat({
       try { wake.currentTime = 0; } catch { /* ignore */ }
     };
 
-    const onSeeked = () => composite();
-
     sleep.addEventListener("loadedmetadata", onMetaSleep);
     wake.addEventListener("loadedmetadata", onMetaWake);
     sleep.addEventListener("seeked", onSeeked);
     wake.addEventListener("seeked", onSeeked);
     if (sleep.readyState >= 1) onMetaSleep();
     if (wake.readyState >= 1) onMetaWake();
+
+    // Run the loop only while the section is near/in view (perf).
+    let io: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== "undefined") {
+      io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            inView = e.isIntersecting;
+            if (inView) { tail = 12; ensureLoop(); }
+          }
+        },
+        { rootMargin: "200px 0px" }
+      );
+      io.observe(track);
+    } else {
+      inView = true; ensureLoop();
+    }
 
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll);
@@ -221,6 +230,8 @@ export default function AboutCat({
       wake.removeEventListener("seeked", onSeeked);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
+      if (io) io.disconnect();
+      if (raf !== null) cancelAnimationFrame(raf);
     };
   }, [ease]);
 
