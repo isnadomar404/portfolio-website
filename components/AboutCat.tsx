@@ -90,6 +90,7 @@ export default function AboutCat({
     let raf: number | null = null;
     let tail = 0;              // extra frames to keep compositing after settling
     let seeking = false;       // a coalesced seek is in flight on the active video
+    let badFrames = 0;         // consecutive invalid ("box") frames at a settled target
 
     // Fraction of the section runway over which the cat finishes walking in on
     // scroll-down. After this point it holds the resting (asleep) frame.
@@ -97,14 +98,21 @@ export default function AboutCat({
 
     const activeVideo = () => (mode === "sleep" ? sleep : wake);
 
+    // A correctly-keyed cat always covers only a MINORITY of the frame (≈35% at
+    // most). If the keyed result comes out almost fully opaque, the source frame
+    // was invalid — an undecoded/garbage frame on seek, or the bad first
+    // keyframe — which is exactly the opaque "box". We never draw that.
+    const OPAQUE_BOX_LIMIT = 0.6;
+
     // Composite the active stacked frame (color top + matte bottom) → keyed RGBA.
-    // Keys the CURRENT decoded frame; on any failure leaves the canvas cleared
-    // (transparent) rather than ever showing the raw opaque frame.
-    const composite = () => {
+    // Returns true only when a VALID keyed frame was drawn; on any failure or an
+    // invalid (box-like) frame it leaves the canvas cleared (transparent) rather
+    // than ever showing the raw opaque frame. Bulletproof across browsers/timing.
+    const composite = (): boolean => {
       const src = activeVideo();
       const fullW = src.videoWidth;
       const fullH = src.videoHeight;
-      if (!fullW || !fullH) return;
+      if (!fullW || !fullH) return false;
       const halfH = Math.floor(fullH / 2);
 
       if (colorC.width !== fullW || colorC.height !== halfH) {
@@ -122,14 +130,25 @@ export default function AboutCat({
         color = colorCtx.getImageData(0, 0, fullW, halfH);
         mask  = maskCtx.getImageData(0, 0, fullW, halfH);
       } catch {
-        return; // tainted/unavailable — never fall back to the raw opaque frame
+        return false; // tainted/unavailable — never fall back to the raw opaque frame
       }
       const cd = color.data, md = mask.data;
-      for (let i = 0; i < cd.length; i += 4) cd[i + 3] = md[i]; // matte luma → alpha
+      let opaque = 0;
+      for (let i = 0; i < cd.length; i += 4) {
+        const a = md[i];      // matte luma → alpha
+        cd[i + 3] = a;
+        if (a > 180) opaque++;
+      }
+      // Reject the invalid "box" frame: keep the canvas transparent instead.
+      if (opaque / (cd.length / 4) > OPAQUE_BOX_LIMIT) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return false;
+      }
       outCtx.putImageData(color, 0, 0);
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(outC, 0, 0);
+      return true;
     };
 
     const timeFor = (src: HTMLVideoElement, p: number) => {
@@ -155,11 +174,18 @@ export default function AboutCat({
         try { src.currentTime = t; } catch { seeking = false; }
       }
 
-      composite(); // always re-key the current decoded frame
+      const ok = composite(); // always re-key the current decoded frame
+      if (ok) badFrames = 0;
+      else if (settled) badFrames++;
 
       if (!settled) tail = 12;
       else if (tail > 0) tail--;
-      if (!settled || tail > 0 || seeking) raf = requestAnimationFrame(frame);
+
+      // If a settled frame keyed to the invalid box, keep re-keying briefly to
+      // catch the real frame once it decodes; give up (staying transparent,
+      // never a box) after a bounded number of attempts.
+      const retryBad = !ok && badFrames > 0 && badFrames < 20;
+      if (!settled || tail > 0 || seeking || retryBad) raf = requestAnimationFrame(frame);
     };
 
     const ensureLoop = () => { if (raf === null && inView) raf = requestAnimationFrame(frame); };
@@ -185,6 +211,7 @@ export default function AboutCat({
         pTarget = sleepP;
       }
       tail = 12;
+      badFrames = 0;
       ensureLoop();
     };
 
