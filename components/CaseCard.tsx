@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -12,6 +12,7 @@ import {
 import { ArrowUpRight } from "lucide-react";
 import { asset } from "@/lib/asset";
 import type { CaseStudy } from "@/lib/caseStudies";
+import { useHoverGlow } from "@/hooks/useHoverGlow";
 
 /** px each covered card peeks above the one on top of it (the stepped edge). */
 const STEP = 14;
@@ -59,6 +60,10 @@ export default function CaseCard({
   const isMobile = useMediaQuery("(max-width: 767px)");
   const reduce = useReducedMotion();
   const isStatic = isMobile || reduce;
+
+  // Cursor-following cobalt glow — updates CSS vars --gx/--gy/--go on the card element.
+  // useHoverGlow is a no-op under reduced-motion / coarse pointer.
+  const glowRef = useHoverGlow<HTMLElement>();
 
   const card = (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-10 md:p-2">
@@ -131,7 +136,10 @@ export default function CaseCard({
   // Mobile / reduced-motion: plain card in normal flow — no sticky, no motion.
   if (isStatic) {
     return (
-      <article className="case-card case-card--static relative mb-8 overflow-hidden rounded-3xl">
+      <article
+        ref={glowRef as React.Ref<HTMLElement>}
+        className="case-card case-card--static relative mb-8 overflow-hidden rounded-3xl"
+      >
         {card}
       </article>
     );
@@ -139,6 +147,7 @@ export default function CaseCard({
 
   return (
     <motion.article
+      ref={glowRef as React.Ref<HTMLElement>}
       className="case-card relative overflow-hidden rounded-3xl"
       style={{
         top: `calc(var(--nav-h, 96px) + ${index * STEP}px)`,

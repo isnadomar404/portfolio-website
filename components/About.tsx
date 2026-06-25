@@ -22,7 +22,7 @@ const CAPS = ["Product", "Brand", "Design Systems", "Prototyping", "Research"];
 export default function About() {
   const P0 = useDepthParallax({ shift: 8, scrollRate: 20 }); // ambient
   const P3 = useDepthParallax({ shift: 46, scrollRate: 110, tilt: 3 }); // copy
-  const CHAR = useDepthParallax({ shift: 24, scrollRate: 60, tilt: 2 }); // figure
+  const CHAR = useDepthParallax({ shift: 30, scrollRate: 70 }); // figure — P2 tier
 
   return (
     <section

@@ -68,7 +68,7 @@ const SOCIALS = [
 export default function Contact() {
   const [sent, setSent] = useState(false);
 
-  const P0 = useDepthParallax({ shift: 6, scrollRate: 18 });
+  const P0 = useDepthParallax({ shift: 8, scrollRate: 20 });
 
   return (
     <section

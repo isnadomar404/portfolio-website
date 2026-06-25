@@ -4,46 +4,49 @@ import { useEffect, useRef } from "react";
 import { asset } from "@/lib/asset";
 
 /**
- * AboutCat — the same ginger-and-white cat from the hero, scrubbed by scroll.
+ * AboutCat — transparent VP9+alpha cat overlay, scrubbed by the About section's scroll.
  *
- *   • Not scrolling      -> frozen on the current frame (never autoplays).
- *   • Scroll DOWN        -> cat walks in from the right, yawns, curls up asleep.
- *   • Scroll UP          -> same clip rewinds -> cat wakes, gets up, walks away.
+ * Behaviour:
+ *   • Not scrolling -> cat is FROZEN on its current frame (no autoplay, no loop).
+ *   • Scroll DOWN   -> timeline advances: cat walks in from OFF-SCREEN left, yawns, curls asleep.
+ *   • Scroll UP     -> timeline rewinds: cat wakes and walks back off-screen left.
  *
- * The clip is a WIDE SHORT STRIP (1056x528) where the cat is always GROUNDED at
- * the bottom of the frame. It sits BOTTOM-LEFT in the About section's negative
- * space, below the headline/bio/tags, aligned with the text's left margin. A
- * baked CSS drop-shadow grounds it. pointer-events:none so it never blocks UI;
- * scrub progress is measured from the enclosing About <section>.
+ * Assets (in public/video/, resolved through asset()):
+ *   • cat-sleep.webm        — VP9+alpha, all-keyframe, hero-scale, off-screen entrance (v4).
+ *   • cat-sleep-poster.png  — tight transparent crop, first paint.
  *
- * Safari can't decode VP9-with-alpha, so it gracefully shows the transparent
- * poster (curled cat) instead of scrubbing.
+ * Placement is bottom-left, in the About left-column negative space, below the copy/tags.
+ * Mount inside the About <section> (which must be position:relative).
  */
-export default function AboutCat({
-  /** horizontal centre of the cat, % of section width (bottom-left, under the text) */
-  leftPct = 18,
-  /** cat's BOTTOM edge above the section bottom, % (rests on the floor) */
-  bottomPct = 4,
-  /** cat strip width, % of section width */
-  widthPct = 15,
-  /** scrub smoothing — higher = snappier, lower = silkier */
-  ease = 0.14,
-}: {
+
+interface AboutCatProps {
+  /** Horizontal centre of the cat, % of the section width. */
   leftPct?: number;
+  /** Cat's bottom edge above the section bottom, %. */
   bottomPct?: number;
+  /** Cat width, % of section width. Default is hero-scale. */
   widthPct?: number;
+  /** Scrub smoothing factor 0..1 (higher = snappier). */
   ease?: number;
-}) {
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+}
+
+export default function AboutCat({
+  leftPct = 18,
+  bottomPct = 4,
+  widthPct = 26,
+  ease = 0.14,
+}: AboutCatProps) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
+    const wrap = wrapRef.current;
     const video = videoRef.current;
-    // offsetParent = nearest positioned ancestor (the About <section> with position:relative/isolate).
-    // More reliable than closest("section") when wrapper nesting changes.
-    const section = (wrapRef.current?.offsetParent || wrapRef.current?.parentElement) as HTMLElement | null;
-    if (!video || !section) return;
+    if (!wrap || !video) return;
 
+    // Measure scroll against the nearest positioned ancestor (the About <section>).
+    const section =
+      (wrap.offsetParent as HTMLElement | null) ?? wrap.parentElement;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     let ready = false;
@@ -64,9 +67,8 @@ export default function AboutCat({
     };
 
     const onScroll = () => {
-      if (!ready || !video.duration) return;
+      if (!ready || !video.duration || !section) return;
       const rect = section.getBoundingClientRect();
-      // progress 0..1 as the section travels through the viewport
       const total = rect.height + window.innerHeight;
       const seen = window.innerHeight - rect.top;
       const p = Math.min(Math.max(seen / total, 0), 1);
@@ -80,42 +82,43 @@ export default function AboutCat({
         }
         return;
       }
-      if (!raf) raf = requestAnimationFrame(tick);
+      if (raf === null) raf = requestAnimationFrame(tick);
     };
 
-    const onMeta = () => {
+    const onReady = () => {
+      // Handle both cold and cached loads (readyState >= 1 == HAVE_METADATA).
+      if (video.readyState < 1) return;
       ready = true;
       video.pause();
       video.currentTime = 0;
       onScroll();
     };
 
-    video.addEventListener("loadedmetadata", onMeta);
-    // metadata may already be loaded before this effect ran (fast cache hit) —
-    // in that case loadedmetadata never fires again, so initialise now.
-    if (video.readyState >= 1) onMeta();
+    video.addEventListener("loadedmetadata", onReady);
+    if (video.readyState >= 1) onReady();
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll);
+
     return () => {
-      video.removeEventListener("loadedmetadata", onMeta);
+      video.removeEventListener("loadedmetadata", onReady);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
-      if (raf) cancelAnimationFrame(raf);
+      if (raf !== null) cancelAnimationFrame(raf);
     };
   }, [ease]);
 
   return (
     <div
       ref={wrapRef}
-      aria-hidden
-      className="absolute"
+      aria-hidden="true"
       style={{
+        position: "absolute",
         left: `${leftPct}%`,
         bottom: `${bottomPct}%`,
         width: `${widthPct}%`,
         transform: "translateX(-50%)",
         pointerEvents: "none",
-        zIndex: 4,
+        zIndex: 3,
         lineHeight: 0,
       }}
     >
@@ -125,8 +128,12 @@ export default function AboutCat({
         playsInline
         preload="auto"
         poster={asset("/video/cat-sleep-poster.png")}
-        className="block h-auto w-full"
-        style={{ filter: "drop-shadow(0 8px 10px rgba(0,0,0,0.55))" }}
+        style={{
+          width: "100%",
+          height: "auto",
+          display: "block",
+          filter: "drop-shadow(0 8px 10px rgba(0,0,0,0.55))",
+        }}
       >
         <source src={asset("/video/cat-sleep.webm")} type="video/webm" />
       </video>

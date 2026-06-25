@@ -30,7 +30,7 @@ function Card({ t }: { t: Testimonial }) {
 
 export default function Testimonials() {
   const P0 = useDepthParallax({ shift: 8, scrollRate: 20 });
-  const P1 = useDepthParallax({ shift: 22, scrollRate: 50, invert: true });
+  const P1 = useDepthParallax({ shift: 18, scrollRate: 45, invert: true });
 
   // Duplicate the list once so the -50% keyframe loops seamlessly.
   const belt = [...testimonials, ...testimonials];

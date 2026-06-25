@@ -285,17 +285,40 @@ body > * {
   display: flex;
   min-height: 78vh;
   margin-bottom: 17vh;
-  /* Opaque enough that a covering card fully hides the ones beneath — only the
-     stepped peek edge shows. (The site-wide .glass fill is too transparent for
-     a stacking deck.) */
   background: linear-gradient(180deg, rgba(16, 22, 38, 0.96), rgba(11, 15, 26, 0.97));
   border: 1px solid var(--card-stroke);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 30px 60px -30px rgba(0, 0, 0, 0.9);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 .case-card:last-child {
   margin-bottom: 0;
+}
+/* Cursor-following radial glow (CSS vars --gx/--gy/--go set by useHoverGlow hook).
+   Only the top card is hovered in practice — covered cards are behind it in z-order. */
+.case-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(
+    240px circle at var(--gx, 50%) var(--gy, 50%),
+    rgba(76, 141, 255, 0.13),
+    transparent 70%
+  );
+  opacity: var(--go, 0);
+  transition: opacity 0.35s ease;
+  z-index: 0;
+}
+.case-card:hover {
+  border-color: rgba(76, 141, 255, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 0 1px rgba(76, 141, 255, 0.12),
+    0 20px 50px -20px rgba(76, 141, 255, 0.35),
+    0 30px 60px -30px rgba(0, 0, 0, 0.9);
 }
 /* inner grid fills the card so text can vertically centre */
 .case-card > div {

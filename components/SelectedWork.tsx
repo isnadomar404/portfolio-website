@@ -11,7 +11,7 @@ import { Reveal } from "./anim";
 import CaseCard from "./CaseCard";
 
 export default function SelectedWork() {
-  const P0 = useDepthParallax({ shift: 10, scrollRate: 24 });
+  const P0 = useDepthParallax({ shift: 8, scrollRate: 20 });
   const stackRef = useRef<HTMLDivElement>(null);
 
   // Native-scroll progress across the whole stack runway. Drives recede/dim only.
