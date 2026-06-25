@@ -50,20 +50,26 @@ export default function About() {
           <Reveal>
             <p className="eyebrow">About</p>
             <h2 className="mt-6 max-w-2xl font-display text-[clamp(2rem,4.6vw,3.4rem)] font-semibold leading-[1.06] text-fg">
-              The designer inside
+              I design, I build,
               <br />
-              their own <span className="text-accent-bright">system</span>.
+              I <span className="text-accent-bright">explore</span>.
             </h2>
             <div className="mt-7 max-w-xl space-y-4 text-[15px] leading-relaxed text-fg-muted">
               <p>
-                I&rsquo;m Isnad Bin Omar — a senior product &amp; brand designer
-                working research-led, from the first interview to the shipped
-                interface.
+                I design products, brands, systems, and sometimes the code that
+                brings them to life.
               </p>
               <p>
-                Currently Head of Design, building design systems and the teams
-                that keep them honest. I care about interfaces that feel
-                considered, never decorative.
+                My process starts with research and ends with shipped
+                experiences, bridging strategy, interaction design, visual
+                design, and engineering. I believe the best interfaces
+                don&rsquo;t ask for attention&mdash;they earn trust through
+                clarity, restraint, and craft.
+              </p>
+              <p>
+                Photography keeps me curious about composition and observation.
+                Vibe coding lets me experiment with games, tools, and digital
+                products that wouldn&rsquo;t exist if I waited for permission.
               </p>
             </div>
             <ul className="mt-8 flex flex-wrap gap-2">
