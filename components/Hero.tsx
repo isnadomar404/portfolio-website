@@ -12,8 +12,9 @@ const DOTS = [
 ];
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-// cat-exit-scrub.mp4 — cat gets up and walks off screen; scrubbed by scroll.
-const SRC = `${BASE}/video/cat-exit-scrub.mp4`;
+// Two clips switched by scroll direction — no moonwalking.
+const EXIT_SRC   = `${BASE}/video/cat-exit-scrub.mp4`;   // cat sits → walks OUT right (scroll down)
+const RETURN_SRC = `${BASE}/video/cat-return-scrub.mp4`; // cat walks IN from right → sits (scroll up)
 const POSTER = `${BASE}/video/cat-poster.jpg`;
 const EASE = 0.14;
 
@@ -36,34 +37,41 @@ const EASE = 0.14;
  * the cached-load race where loadedmetadata fires before the listener attaches.
  */
 export default function Hero() {
-  const trackRef = useRef<HTMLElement>(null);
+  const trackRef  = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const hintRef = useRef<HTMLDivElement>(null);
+  const exitRef   = useRef<HTMLVideoElement>(null);
+  const returnRef = useRef<HTMLVideoElement>(null);
+  const hintRef   = useRef<HTMLDivElement>(null);
 
   // Subtle pointer-only drift on the video layer. No scroll drift: the stage is
   // pinned, so a scroll-rate transform would walk the canvas off the viewport.
   const P_video = useDepthParallax({ scrollRate: 0 });
 
   useEffect(() => {
-    const track = trackRef.current;
+    const track  = trackRef.current;
     const canvas = canvasRef.current;
-    const video = videoRef.current;
-    const hint = hintRef.current;
-    if (!track || !canvas || !video) return;
+    const exit   = exitRef.current;
+    const ret    = returnRef.current;
+    const hint   = hintRef.current;
+    if (!track || !canvas || !exit || !ret) return;
 
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
 
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduce  = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const hasRVFC = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
 
-    let ready = false;
-    let target = 0;
+    let readyExit   = false;
+    let readyReturn = false;
+    let active: "exit" | "return" = "exit";
+    let lastScroll = window.scrollY;
+    let target  = 0;
     let current = 0;
     let raf: number | null = null;
     let vw = 0;
     let vh = 0;
+
+    const activeVideo = () => (active === "exit" ? exit : ret);
 
     const posterImg = new Image();
     posterImg.src = POSTER;
@@ -78,8 +86,8 @@ export default function Hero() {
     }
 
     function draw() {
-      if (ready && vw) {
-        coverDraw(vw, vh, video!);
+      if (readyExit && vw) {
+        coverDraw(vw, vh, activeVideo());
       } else {
         // Fill with the page background colour so the canvas never flashes black.
         ctx!.fillStyle = "#070a12";
@@ -99,14 +107,15 @@ export default function Hero() {
 
     function onFrame() {
       draw();
-      if (hasRVFC) video!.requestVideoFrameCallback(onFrame);
+      if (hasRVFC) activeVideo().requestVideoFrameCallback(onFrame);
     }
 
     function tick() {
+      const v = activeVideo();
       current += (target - current) * EASE;
       const done = Math.abs(target - current) <= 0.004;
       if (done) current = target;
-      try { video!.currentTime = current; } catch (_) {}
+      try { v.currentTime = current; } catch (_) {}
       if (!hasRVFC) draw();
       if (!done) raf = requestAnimationFrame(tick);
       else raf = null;
@@ -114,58 +123,84 @@ export default function Hero() {
 
     function onScroll() {
       const rect = track!.getBoundingClientRect();
-      // Pinned scrub: the track is tall, its sticky child stays fixed on screen
-      // while we scroll the runway. Progress = how far into the track we are,
-      // 0 (just pinned) → 1 (runway consumed → pin releases to the next section).
       const scrollable = Math.max(track!.offsetHeight - window.innerHeight, 1);
       const p = Math.min(Math.max(-rect.top / scrollable, 0), 1);
       if (hint) hint.style.opacity = p > 0.05 ? "0" : "1";
-      if (!ready || !video!.duration) return;
-      target = p * video!.duration;
+
+      if (!readyExit || !readyReturn) { lastScroll = window.scrollY; return; }
+
+      const goingUp = window.scrollY < lastScroll;
+      lastScroll = window.scrollY;
+
+      // Switch clip on direction change
+      if (goingUp && active === "exit") {
+        active = "return";
+        vw = ret!.videoWidth;
+        vh = ret!.videoHeight;
+        current = 0;
+        if (hasRVFC) ret!.requestVideoFrameCallback(onFrame);
+      } else if (!goingUp && active === "return") {
+        active = "exit";
+        vw = exit!.videoWidth;
+        vh = exit!.videoHeight;
+        current = exit!.duration || 0;
+        if (hasRVFC) exit!.requestVideoFrameCallback(onFrame);
+      }
+
+      const v = activeVideo();
+      if (!v.duration) return;
+      // EXIT: p 0→1 maps to t 0→end (cat leaves scrolling down).
+      // RETURN: p decreases going up → (1-p) increases → return clip plays forward (cat walks in).
+      target = active === "exit" ? p * v.duration : (1 - p) * v.duration;
+
       if (reduce) {
         current = target;
-        try { video!.currentTime = current; } catch (_) {}
+        try { v.currentTime = current; } catch (_) {}
         draw();
         return;
       }
       if (!raf) raf = requestAnimationFrame(tick);
     }
 
-    function onMeta() {
-      if (ready) return;
-      ready = true;
-      vw = video!.videoWidth;
-      vh = video!.videoHeight;
-      if (hasRVFC) video!.requestVideoFrameCallback(onFrame);
-      // iOS Safari blocks seeking until the video has played at least once.
-      // play().then(pause) on a muted+playsInline video is allowed without user gesture.
-      video!
+    function onMetaExit() {
+      if (readyExit) return;
+      readyExit = true;
+      vw = exit!.videoWidth;
+      vh = exit!.videoHeight;
+      if (hasRVFC) exit!.requestVideoFrameCallback(onFrame);
+      // iOS Safari unlock
+      exit!
         .play()
-        .then(() => { video!.pause(); video!.currentTime = 0; resize(); })
-        .catch(() => { try { video!.currentTime = 0; } catch (_) {} resize(); });
+        .then(() => { exit!.pause(); exit!.currentTime = 0; resize(); })
+        .catch(() => { try { exit!.currentTime = 0; } catch (_) {} resize(); });
+    }
+
+    function onMetaReturn() {
+      if (readyReturn) return;
+      readyReturn = true;
+      ret!.pause();
+      ret!.currentTime = 0;
     }
 
     posterImg.addEventListener("load", draw);
-    video.addEventListener("loadedmetadata", onMeta);
-    video.addEventListener("seeked", draw);
+    exit.addEventListener("loadedmetadata", onMetaExit);
+    ret.addEventListener("loadedmetadata",  onMetaReturn);
+    exit.addEventListener("seeked", draw);
+    ret.addEventListener("seeked",  draw);
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", resize);
 
-    // Fast-cache guard — metadata may already be loaded on repeat visits.
-    if (video.readyState >= 1) {
-      onMeta();
-    } else {
-      // Force mobile browsers (especially iOS, which ignores preload="auto" on
-      // hidden videos) to start fetching so loadedmetadata fires.
-      video.load();
-    }
+    if (exit.readyState >= 1) onMetaExit(); else exit.load();
+    if (ret.readyState  >= 1) onMetaReturn(); else ret.load();
 
     resize();
 
     return () => {
       posterImg.removeEventListener("load", draw);
-      video.removeEventListener("loadedmetadata", onMeta);
-      video.removeEventListener("seeked", draw);
+      exit.removeEventListener("loadedmetadata", onMetaExit);
+      ret.removeEventListener("loadedmetadata",  onMetaReturn);
+      exit.removeEventListener("seeked", draw);
+      ret.removeEventListener("seeked",  draw);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", resize);
       if (raf) cancelAnimationFrame(raf);
@@ -197,22 +232,25 @@ export default function Hero() {
           aria-label="Isnad Bin Omar at his desk with a cat — scroll to animate"
           className="absolute inset-0 block h-full w-full"
         />
-        {/* Hidden source video — seeked per frame, painted onto canvas */}
+        {/* Hidden source videos — seeked per frame, painted onto canvas */}
         <video
-          ref={videoRef}
-          src={SRC}
+          ref={exitRef}
+          src={EXIT_SRC}
           poster={POSTER}
           muted
           playsInline
-          preload="metadata"
+          preload="auto"
           aria-hidden
-          style={{
-            position: "absolute",
-            width: 1,
-            height: 1,
-            opacity: 0,
-            pointerEvents: "none",
-          }}
+          style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+        />
+        <video
+          ref={returnRef}
+          src={RETURN_SRC}
+          muted
+          playsInline
+          preload="auto"
+          aria-hidden
+          style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
         />
       </motion.div>
 
