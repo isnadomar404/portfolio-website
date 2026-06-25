@@ -263,16 +263,18 @@ export default function Hero() {
           aria-label="Isnad Bin Omar at his desk with a cat — scroll to animate"
           className="absolute inset-0 block h-full w-full"
         />
-        {/* Hidden source videos — seeked per frame, painted onto canvas */}
+        {/* Hidden source videos — decoded & seeked per frame, painted onto the
+            canvas; never shown directly. Parked offscreen (left:-9999) with NO
+            poster so a stray paint of the diorama first-frame can't leak as a
+            box (see CAT-OVERLAY-BUGFIX fix #5). The canvas draws POSTER itself. */}
         <video
           ref={exitRef}
           src={EXIT_SRC}
-          poster={POSTER}
           muted
           playsInline
           preload="auto"
           aria-hidden
-          style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+          style={{ position: "absolute", left: -9999, top: 0, width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
         />
         <video
           ref={returnRef}
@@ -281,7 +283,7 @@ export default function Hero() {
           playsInline
           preload="auto"
           aria-hidden
-          style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+          style={{ position: "absolute", left: -9999, top: 0, width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
         />
       </motion.div>
 

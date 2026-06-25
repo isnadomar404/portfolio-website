@@ -271,18 +271,20 @@ export default function AboutCat({
           filter: "drop-shadow(0 8px 10px rgba(0,0,0,0.55))",
         }}
       />
-      {/* Hidden source videos — seeked per frame, never rendered directly */}
+      {/* Hidden source videos — decoded & seeked per frame, painted onto the
+          canvas; never shown directly. Parked offscreen (left:-9999) so a stray
+          paint can't leak as a box (CAT-OVERLAY-BUGFIX fix #5). No poster. */}
       <video
         ref={sleepRef}
         muted playsInline preload="auto"
-        style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+        style={{ position: "absolute", left: -9999, top: 0, width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
       >
         <source src={asset("/video/cat-sleep.webm")} type="video/webm" />
       </video>
       <video
         ref={wakeRef}
         muted playsInline preload="auto"
-        style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+        style={{ position: "absolute", left: -9999, top: 0, width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
       >
         <source src={asset("/video/cat-wake.webm")} type="video/webm" />
       </video>
