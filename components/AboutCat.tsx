@@ -4,37 +4,41 @@ import { useEffect, useRef } from "react";
 import { asset } from "@/lib/asset";
 
 /**
- * AboutCat — transparent VP9+alpha cat overlay, scrubbed by the About section's scroll.
+ * AboutCat — transparent VP9+alpha cat overlay for the About section.
  *
- * Behaviour:
- *   • Not scrolling -> cat is FROZEN on its current frame (no autoplay, no loop).
- *   • Scroll DOWN   -> timeline advances: cat walks in from OFF-SCREEN left, yawns, curls asleep.
- *   • Scroll UP     -> timeline rewinds: cat wakes and walks back off-screen left.
+ * INTERACTION (state machine):
+ *   1. "armed"   — initial. Cat frozen on frame 0 (off-screen). Waiting for the pointer / in-view.
+ *   2. "playing" — the FIRST time the pointer enters the section (or it scrolls ~into view), the clip
+ *                  auto-advances ONCE to the end: cat walks in from the left, meows, curls up asleep.
+ *                  Driven by requestAnimationFrame (NOT native play) so it is perfectly smooth and
+ *                  consistent with the scrub phase — no playback-rate pop, no decoder stutter.
+ *   3. "scrub"   — after the intro reaches the asleep frame, scroll takes over: scrolling drives
+ *                  video.currentTime (scroll up = cat wakes & walks back). Frozen when idle.
  *
- * Assets (in public/video/, resolved through asset()):
- *   • cat-sleep.webm        — VP9+alpha, all-keyframe, hero-scale, off-screen entrance (v4).
- *   • cat-sleep-poster.png  — tight transparent crop, first paint.
+ * Assets (public/video/, via asset()):
+ *   • cat-sleep.webm        — VP9+alpha, all-keyframe (walk-in → meow → sleep).
+ *   • cat-sleep-poster.png  — transparent first-paint poster.
  *
- * Placement is bottom-left, in the About left-column negative space, below the copy/tags.
- * Mount inside the About <section> (which must be position:relative).
+ * Mount inside the About <section> (position:relative). pointer-events:none — never blocks UI.
  */
 
 interface AboutCatProps {
-  /** Horizontal centre of the cat, % of the section width. */
   leftPct?: number;
-  /** Cat's bottom edge above the section bottom, %. */
   bottomPct?: number;
-  /** Cat width, % of section width. Default is hero-scale. */
+  /** Cat width, % of section width. Scaled down from hero size. */
   widthPct?: number;
   /** Scrub smoothing factor 0..1 (higher = snappier). */
   ease?: number;
+  /** Intro duration in seconds (how long the auto walk-in→sleep takes). */
+  introSeconds?: number;
 }
 
 export default function AboutCat({
   leftPct = 18,
   bottomPct = 4,
-  widthPct = 26,
+  widthPct = 20,
   ease = 0.14,
+  introSeconds = 3.2,
 }: AboutCatProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -44,30 +48,73 @@ export default function AboutCat({
     const video = videoRef.current;
     if (!wrap || !video) return;
 
-    // Measure scroll against the nearest positioned ancestor (the About <section>).
     const section =
       (wrap.offsetParent as HTMLElement | null) ?? wrap.parentElement;
+    if (!section) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     let ready = false;
-    let target = 0;
-    let current = 0;
+    let phase: "armed" | "playing" | "scrub" = "armed";
+    let target = 0; // scrub target time
+    let current = 0; // smoothed applied time
     let raf: number | null = null;
+    let introStart = 0;
 
-    const tick = () => {
-      current += (target - current) * ease;
-      const done = Math.abs(target - current) <= 0.004;
-      if (done) current = target;
+    const setTime = (t: number) => {
       try {
-        video.currentTime = current;
+        video.currentTime = t;
       } catch {
         /* seeking before metadata — ignore */
       }
-      raf = done ? null : requestAnimationFrame(tick);
+    };
+
+    // ---- phase 2: rAF intro (smooth auto walk-in → sleep) ----
+    const introTick = (now: number) => {
+      if (phase !== "playing") return;
+      if (!introStart) introStart = now;
+      const dur = video.duration || 10;
+      const k = Math.min((now - introStart) / 1000 / introSeconds, 1);
+      // easeInOutCubic for a natural settle
+      const eased =
+        k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      current = eased * dur;
+      setTime(current);
+      if (k < 1) {
+        raf = requestAnimationFrame(introTick);
+      } else {
+        // hand off to scroll control, seeded at the asleep frame
+        phase = "scrub";
+        current = target = dur;
+        raf = null;
+        onScroll();
+      }
+    };
+
+    const startIntro = () => {
+      if (!ready || phase !== "armed") return;
+      phase = "playing";
+      introStart = 0;
+      if (reduce) {
+        // reduced-motion: skip the intro, settle straight to asleep then allow scrub
+        phase = "scrub";
+        current = target = video.duration || 10;
+        setTime(current);
+        return;
+      }
+      raf = requestAnimationFrame(introTick);
+    };
+
+    // ---- phase 3: scroll-driven scrubbing ----
+    const scrubTick = () => {
+      current += (target - current) * ease;
+      const done = Math.abs(target - current) <= 0.004;
+      if (done) current = target;
+      setTime(current);
+      raf = done ? null : requestAnimationFrame(scrubTick);
     };
 
     const onScroll = () => {
-      if (!ready || !video.duration || !section) return;
+      if (!ready || phase !== "scrub" || !video.duration) return;
       const rect = section.getBoundingClientRect();
       const total = rect.height + window.innerHeight;
       const seen = window.innerHeight - rect.top;
@@ -75,37 +122,49 @@ export default function AboutCat({
       target = p * video.duration;
       if (reduce) {
         current = target;
-        try {
-          video.currentTime = current;
-        } catch {
-          /* ignore */
-        }
+        setTime(current);
         return;
       }
-      if (raf === null) raf = requestAnimationFrame(tick);
+      if (raf === null) raf = requestAnimationFrame(scrubTick);
     };
 
+    const onPointerEnter = () => startIntro();
+
+    let io: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== "undefined") {
+      io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting && e.intersectionRatio > 0.35) startIntro();
+          }
+        },
+        { threshold: [0, 0.35, 0.6] }
+      );
+      io.observe(section);
+    }
+
     const onReady = () => {
-      // Handle both cold and cached loads (readyState >= 1 == HAVE_METADATA).
       if (video.readyState < 1) return;
       ready = true;
       video.pause();
-      video.currentTime = 0;
-      onScroll();
+      setTime(0);
     };
 
     video.addEventListener("loadedmetadata", onReady);
     if (video.readyState >= 1) onReady();
+    section.addEventListener("pointerenter", onPointerEnter);
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll);
 
     return () => {
       video.removeEventListener("loadedmetadata", onReady);
+      section.removeEventListener("pointerenter", onPointerEnter);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
+      if (io) io.disconnect();
       if (raf !== null) cancelAnimationFrame(raf);
     };
-  }, [ease]);
+  }, [ease, introSeconds]);
 
   return (
     <div
