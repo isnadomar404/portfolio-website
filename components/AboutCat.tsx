@@ -27,8 +27,8 @@ import { asset } from "@/lib/asset";
  *
  * BEHAVIOR
  * --------
- *   • Default: the cat sits SLEEPING (rest frame of the sleep clip).
- *   • Scroll DOWN: stays asleep.
+ *   • Scroll DOWN (Hero → About): cat WALKS IN and settles asleep (cat-sleep
+ *     clip scrubbed forward over the first part of the section runway).
  *   • Scroll UP (About → Hero): cat WAKES and walks away (cat-wake forward).
  *
  * PIN CONTEXT — progress from the outer <section> (closest("section")), NOT
@@ -83,13 +83,17 @@ export default function AboutCat({
     let readySleep = false;
     let readyWake  = false;
     let mode: "sleep" | "wake" = "sleep";
-    let pTarget = 1;            // 1 = settled asleep; 0..1 = wake progress
-    let cur = 1;
+    let pTarget = 0;           // sleep: 0 = walk-in start, 1 = settled asleep; wake: 0..1 progress
+    let cur = 0;
     let lastScroll = window.scrollY;
     let inView = false;
     let raf: number | null = null;
     let tail = 0;              // extra frames to keep compositing after settling
     let seeking = false;       // a coalesced seek is in flight on the active video
+
+    // Fraction of the section runway over which the cat finishes walking in on
+    // scroll-down. After this point it holds the resting (asleep) frame.
+    const ARRIVE = 0.4;
 
     const activeVideo = () => (mode === "sleep" ? sleep : wake);
 
@@ -173,10 +177,12 @@ export default function AboutCat({
 
       if (goingUp) {
         if (mode !== "wake")  { mode = "wake";  cur = 0; seeking = false; }
-        pTarget = Math.min(Math.max(1 - p, 0), 1); // scroll up → wake plays forward
+        pTarget = Math.min(Math.max(1 - p, 0), 1); // scroll up → wake plays forward (walk away)
       } else {
-        if (mode !== "sleep") { mode = "sleep"; cur = 1; seeking = false; }
-        pTarget = 1;                               // asleep at rest
+        // scroll down → sleep clip scrubs forward: cat WALKS IN, then settles asleep.
+        const sleepP = Math.min(Math.max(p / ARRIVE, 0), 1);
+        if (mode !== "sleep") { mode = "sleep"; cur = sleepP; seeking = false; }
+        pTarget = sleepP;
       }
       tail = 12;
       ensureLoop();
@@ -186,14 +192,16 @@ export default function AboutCat({
       if (sleep.readyState < 1 || readySleep) return;
       readySleep = true;
       sleep.pause();
-      try { sleep.currentTime = sleep.duration || 0; } catch { /* ignore */ } // rest frame
+      try { sleep.currentTime = 0; } catch { /* ignore */ } // walk-in start frame
       tail = 30; ensureLoop();
+      if (readyWake) onScroll(); // sync to current scroll position
     };
     const onMetaWake = () => {
       if (wake.readyState < 1 || readyWake) return;
       readyWake = true;
       wake.pause();
       try { wake.currentTime = 0; } catch { /* ignore */ }
+      if (readySleep) onScroll(); // sync to current scroll position
     };
 
     sleep.addEventListener("loadedmetadata", onMetaSleep);
