@@ -352,7 +352,7 @@ export default function Hero() {
           <span className="h-1.5 w-1 animate-bounce rounded-full bg-fg-muted" />
         </span>
         <span className="text-[11px] uppercase tracking-[0.24em]">
-          Scroll — the cat follows
+          Scroll to move the cat
         </span>
       </div>
       </div>
