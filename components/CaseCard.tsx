@@ -155,7 +155,8 @@ export default function CaseCard({
         scale,
         filter,
         transformOrigin: "center top",
-        willChange: "transform",
+        willChange: "transform, filter",
+        backfaceVisibility: "hidden",
       }}
     >
       {card}
