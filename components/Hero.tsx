@@ -3,13 +3,7 @@
 import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { useDepthParallax } from "@/hooks/useDepthParallax";
-
-const DOTS = [
-  { id: "top", label: "Home" },
-  { id: "about", label: "About" },
-  { id: "work", label: "Work" },
-  { id: "contact", label: "Contact" },
-];
+import ScrollLiquidRail from "@/components/ScrollLiquidRail";
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 // Two clips switched by scroll direction — no moonwalking.
@@ -326,36 +320,10 @@ export default function Hero() {
       >
         <span className="mb-6 h-24 w-px bg-rule" />
         <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-        <span
-          className="mt-6 text-[11px] uppercase tracking-[0.3em] text-fg-muted"
-          style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
-        >
-          Based in Budapest, Hungary
-        </span>
       </div>
 
-      {/* Right rail — section nav dots */}
-      <div
-        className="absolute right-7 top-1/2 hidden -translate-y-1/2 flex-col items-center gap-4 lg:flex"
-        style={{ zIndex: 10 }}
-      >
-        {DOTS.map((d, i) => (
-          <a
-            key={d.id}
-            href={`#${d.id}`}
-            aria-label={d.label}
-            className="group relative flex h-3 w-3 cursor-pointer items-center justify-center"
-          >
-            <span
-              className={`block rounded-full transition-all duration-300 ${
-                i === 0
-                  ? "h-3 w-3 bg-accent"
-                  : "h-2.5 w-2.5 border border-fg-muted/60 bg-bg group-hover:border-accent"
-              }`}
-            />
-          </a>
-        ))}
-      </div>
+      {/* Right rail — scroll progress liquid loader */}
+      <ScrollLiquidRail />
 
       {/* Scroll hint — fades as soon as you start scrolling */}
       <div
