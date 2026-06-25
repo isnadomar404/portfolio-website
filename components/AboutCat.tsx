@@ -34,9 +34,9 @@ interface AboutCatProps {
 }
 
 export default function AboutCat({
-  leftPct = 18,
+  leftPct = 0,
   bottomPct = 4,
-  widthPct = 20,
+  widthPct = 22,
   ease = 0.14,
   introSeconds = 3.2,
 }: AboutCatProps) {
@@ -172,10 +172,11 @@ export default function AboutCat({
       aria-hidden="true"
       style={{
         position: "absolute",
-        left: `${leftPct}%`,
+        // Hug the true page border: cancel the About section's horizontal
+        // padding (px-5 / sm:px-8) so the cat sits flush against the left edge.
+        left: `calc(${leftPct}% - 2rem)`,
         bottom: `${bottomPct}%`,
         width: `${widthPct}%`,
-        transform: "translateX(-50%)",
         pointerEvents: "none",
         zIndex: 3,
         lineHeight: 0,
