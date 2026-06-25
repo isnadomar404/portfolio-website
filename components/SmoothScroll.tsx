@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Lenis from "lenis";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { setLenis } from "@/lib/lenis";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
@@ -19,6 +20,8 @@ export default function SmoothScroll() {
       wheelMultiplier: 1,
       touchMultiplier: 1.6,
     });
+    // Expose the instance so the nav can drive smooth section scrolling.
+    setLenis(lenis);
 
     // Drive ScrollTrigger from Lenis so parallax is perfectly in sync, and drive
     // Lenis from GSAP's single ticker so there's ONE rAF loop for the whole page.
@@ -46,6 +49,7 @@ export default function SmoothScroll() {
       ro.disconnect();
       clearTimeout(refreshTimer);
       gsap.ticker.remove(onTick);
+      setLenis(null);
       lenis.destroy();
     };
   }, []);
