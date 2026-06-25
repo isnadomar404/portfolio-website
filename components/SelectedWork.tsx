@@ -21,7 +21,7 @@ export default function SelectedWork() {
   });
 
   return (
-    <section id="work" className="relative isolate bg-bg-elev py-24 sm:py-32">
+    <section id="work" className="relative isolate py-24 sm:py-32">
       {/* Ambient glow — clipped in its OWN sibling so it never sets overflow on
           an ancestor of the sticky cards (which would break position: sticky). */}
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">

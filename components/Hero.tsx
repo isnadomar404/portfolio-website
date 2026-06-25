@@ -77,9 +77,15 @@ export default function Hero() {
     }
 
     function draw() {
-      if (ready && vw) coverDraw(vw, vh, video!);
-      else if (posterImg.complete && posterImg.naturalWidth)
-        coverDraw(posterImg.naturalWidth, posterImg.naturalHeight, posterImg);
+      if (ready && vw) {
+        coverDraw(vw, vh, video!);
+      } else {
+        // Fill with the page background colour so the canvas never flashes black.
+        ctx!.fillStyle = "#070a12";
+        ctx!.fillRect(0, 0, canvas!.width, canvas!.height);
+        if (posterImg.complete && posterImg.naturalWidth)
+          coverDraw(posterImg.naturalWidth, posterImg.naturalHeight, posterImg);
+      }
     }
 
     function resize() {
@@ -210,10 +216,11 @@ export default function Hero() {
             "radial-gradient(120% 80% at 50% 38%, transparent 42%, rgba(7,10,18,0.5) 100%), radial-gradient(70% 60% at 88% 18%, rgba(115,239,247,0.12), transparent 70%)",
         }}
       />
+      {/* Extended bottom fade — blends the hero into the next section */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-bg to-transparent"
-        style={{ zIndex: 4 }}
+        className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-bg to-transparent"
+        style={{ zIndex: 4, height: "30%" }}
       />
 
       {/* Left rail */}

@@ -65,6 +65,24 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Section blending — every section fades in from the page bg at the top so
+   there are no hard horizontal edges between sections. The fade is a
+   pointer-events-none pseudo overlay; it never clips section content. */
+section::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 120px;
+  background: linear-gradient(to bottom, var(--bg), transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+/* Hero already handles its own fade — skip the top overlay there. */
+#top::before {
+  display: none;
+}
+
 ::selection {
   background: var(--accent);
   color: #06080f;
