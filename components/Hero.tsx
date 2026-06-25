@@ -244,7 +244,7 @@ export default function Hero() {
           className="mt-6 text-[11px] uppercase tracking-[0.3em] text-fg-muted"
           style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
         >
-          Based in Dhaka, Bangladesh
+          Based in Budapest, Hungary
         </span>
       </div>
 
