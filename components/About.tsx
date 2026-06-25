@@ -25,11 +25,14 @@ export default function About() {
   const CHAR = useDepthParallax({ shift: 30, scrollRate: 70 }); // figure — P2 tier
 
   return (
-    <section
-      id="about"
-      className="relative isolate overflow-hidden px-5 py-28 sm:px-8 sm:py-36"
-      style={{ minHeight: "100svh", display: "flex", alignItems: "center" }}
-    >
+    <section id="about" className="relative" style={{ height: "220svh" }}>
+      {/* Sticky stage — pinned while you scroll the runway. Scrolling scrubs the
+          cat awake and back off-screen; once it's gone the pin releases and the
+          page flows into the next section. */}
+      <div
+        className="sticky top-0 isolate flex items-center overflow-hidden px-5 py-28 sm:px-8 sm:py-36"
+        style={{ height: "100svh" }}
+      >
       {/* P0 — ambient cobalt glow (unchanged) */}
       <motion.div
         ref={P0.ref}
@@ -184,6 +187,7 @@ export default function About() {
 
       {/* the hero cat, grounded bottom-left under the copy — scroll-scrubbed */}
       <AboutCat />
+      </div>
     </section>
   );
 }

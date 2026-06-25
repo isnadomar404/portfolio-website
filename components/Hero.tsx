@@ -41,8 +41,9 @@ export default function Hero() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hintRef = useRef<HTMLDivElement>(null);
 
-  // Gentle parallax drift on the video layer — transform only, never affects scroll speed.
-  const P_video = useDepthParallax({ scrollRate: 35 });
+  // Subtle pointer-only drift on the video layer. No scroll drift: the stage is
+  // pinned, so a scroll-rate transform would walk the canvas off the viewport.
+  const P_video = useDepthParallax({ scrollRate: 0 });
 
   useEffect(() => {
     const track = trackRef.current;
@@ -113,9 +114,11 @@ export default function Hero() {
 
     function onScroll() {
       const rect = track!.getBoundingClientRect();
-      // Progress 0→1 as the section exits viewport (no pin — natural scroll speed).
-      // rect.top goes from 0 (hero fills screen) to -rect.height (hero fully gone).
-      const p = Math.min(Math.max(-rect.top / rect.height, 0), 1);
+      // Pinned scrub: the track is tall, its sticky child stays fixed on screen
+      // while we scroll the runway. Progress = how far into the track we are,
+      // 0 (just pinned) → 1 (runway consumed → pin releases to the next section).
+      const scrollable = Math.max(track!.offsetHeight - window.innerHeight, 1);
+      const p = Math.min(Math.max(-rect.top / scrollable, 0), 1);
       if (hint) hint.style.opacity = p > 0.05 ? "0" : "1";
       if (!ready || !video!.duration) return;
       target = p * video!.duration;
@@ -173,9 +176,16 @@ export default function Hero() {
     <section
       ref={trackRef}
       id="top"
-      className="relative isolate"
-      style={{ height: "100svh", overflow: "hidden" }}
+      className="relative"
+      style={{ height: "280svh" }}
     >
+      {/* Sticky stage — pinned on screen for the whole track. Scroll through the
+          runway scrubs the cat out; once the runway is consumed the pin releases
+          and the page flows into the next section. */}
+      <div
+        className="sticky top-0 isolate"
+        style={{ height: "100svh", overflow: "hidden" }}
+      >
       {/* Video layer — parallax drift only, never slows page scroll */}
       <motion.div
         ref={P_video.ref}
@@ -273,6 +283,7 @@ export default function Hero() {
         <span className="text-[11px] uppercase tracking-[0.24em]">
           Scroll — the cat follows
         </span>
+      </div>
       </div>
     </section>
   );

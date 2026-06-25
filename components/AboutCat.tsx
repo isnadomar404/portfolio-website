@@ -48,9 +48,13 @@ export default function AboutCat({
     const video = videoRef.current;
     if (!wrap || !video) return;
 
-    const section =
-      (wrap.offsetParent as HTMLElement | null) ?? wrap.parentElement;
-    if (!section) return;
+    // The cat is absolutely placed inside the pinned sticky stage (its
+    // offsetParent). Scroll progress, however, is measured against the TALL
+    // outer section (the pin track) — while pinned, the sticky parent's rect
+    // stays put, but the track scrolls through the viewport.
+    const track =
+      (wrap.closest("section") as HTMLElement | null) ?? wrap.parentElement;
+    if (!track) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     let ready = false;
@@ -115,11 +119,13 @@ export default function AboutCat({
 
     const onScroll = () => {
       if (!ready || phase !== "scrub" || !video.duration) return;
-      const rect = section.getBoundingClientRect();
-      const total = rect.height + window.innerHeight;
-      const seen = window.innerHeight - rect.top;
-      const p = Math.min(Math.max(seen / total, 0), 1);
-      target = p * video.duration;
+      // Pin progress: 0 the instant the stage pins (cat asleep), 1 once the
+      // runway is consumed (cat gone). Reverse the clip across it so scrolling
+      // down wakes the cat and walks it back off-screen, then the pin releases.
+      const rect = track.getBoundingClientRect();
+      const scrollable = Math.max(track.offsetHeight - window.innerHeight, 1);
+      const p = Math.min(Math.max(-rect.top / scrollable, 0), 1);
+      target = (1 - p) * video.duration;
       if (reduce) {
         current = target;
         setTime(current);
@@ -132,15 +138,17 @@ export default function AboutCat({
 
     let io: IntersectionObserver | null = null;
     if (typeof IntersectionObserver !== "undefined") {
+      // The track is ~2.2 viewports tall, so its visible ratio peaks near 0.45 —
+      // fire the walk-in intro once it's ~a third on screen (well before the pin).
       io = new IntersectionObserver(
         (entries) => {
           for (const e of entries) {
-            if (e.isIntersecting && e.intersectionRatio > 0.35) startIntro();
+            if (e.isIntersecting && e.intersectionRatio > 0.3) startIntro();
           }
         },
-        { threshold: [0, 0.35, 0.6] }
+        { threshold: [0, 0.3, 0.45] }
       );
-      io.observe(section);
+      io.observe(track);
     }
 
     const onReady = () => {
@@ -152,13 +160,13 @@ export default function AboutCat({
 
     video.addEventListener("loadedmetadata", onReady);
     if (video.readyState >= 1) onReady();
-    section.addEventListener("pointerenter", onPointerEnter);
+    track.addEventListener("pointerenter", onPointerEnter);
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll);
 
     return () => {
       video.removeEventListener("loadedmetadata", onReady);
-      section.removeEventListener("pointerenter", onPointerEnter);
+      track.removeEventListener("pointerenter", onPointerEnter);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
       if (io) io.disconnect();
