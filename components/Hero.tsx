@@ -64,6 +64,8 @@ export default function Hero() {
     let readyExit   = false;
     let readyReturn = false;
     let active: "exit" | "return" = "exit";
+    let goneLatched   = false; // exit clip reached its end — cat fully off-screen
+    let seatedLatched = false; // return clip reached its end — cat fully seated
     let lastScroll = window.scrollY;
     let target  = 0;
     let current = 0;
@@ -132,25 +134,54 @@ export default function Hero() {
       const goingUp = window.scrollY < lastScroll;
       lastScroll = window.scrollY;
 
-      // Switch clip on direction change
-      if (goingUp && active === "exit") {
-        active = "return";
-        vw = ret!.videoWidth;
-        vh = ret!.videoHeight;
-        current = 0;
-        if (hasRVFC) ret!.requestVideoFrameCallback(onFrame);
-      } else if (!goingUp && active === "return") {
-        active = "exit";
-        vw = exit!.videoWidth;
-        vh = exit!.videoHeight;
-        current = exit!.duration || 0;
-        if (hasRVFC) exit!.requestVideoFrameCallback(onFrame);
+      // Switch clips ONLY at the boundaries, so a mid-scrub reverse stays on the
+      // SAME clip (smooth, replays the footage backward) instead of jumping to
+      // the other one:
+      //  • Mid-exit + scroll up  → exit clip just scrubs backward (cat walks back
+      //    in reverse). No switch, no jump.
+      //  • Cat fully GONE (exit reached its end, p≈1) + scroll up → hand off to
+      //    the RETURN clip so the cat walks back in FORWARD (natural, not reverse).
+      //  • Cat fully SEATED (return reached its end, p≈0) + scroll down → hand
+      //    back to the EXIT clip so it walks out forward again.
+      // The two clips agree visually at both ends (gone↔gone at p=1, seated↔seated
+      // at p=0), so every handoff is seamless.
+      // Latches arm only when a clip actually reaches its far end — i.e. you
+      // really scrolled to the bottom (cat gone) or back to the top (cat seated).
+      // A latch persists across events, so even a coarse trackpad flick triggers
+      // the handoff; and if you DON'T reach the end, no latch arms and a reverse
+      // simply scrubs the same clip backward (the mid-scrub case).
+      const PE = 0.02; // how close to the end counts as "reached it"
+
+      if (active === "exit") {
+        if (p >= 1 - PE) goneLatched = true; // cat fully off-screen — arm return
+        if (goneLatched && goingUp) {
+          // reversing after the cat left → hand off to the forward return clip
+          active = "return";
+          goneLatched = false;
+          vw = ret!.videoWidth;
+          vh = ret!.videoHeight;
+          current = 0; // return t=0 = cat off-screen, matches the exit clip's end
+          if (hasRVFC) ret!.requestVideoFrameCallback(onFrame);
+        }
+      } else {
+        if (p <= PE) seatedLatched = true; // cat fully seated — arm exit
+        if (seatedLatched && !goingUp) {
+          // heading back down after the cat sat → hand off to the forward exit clip
+          active = "exit";
+          seatedLatched = false;
+          vw = exit!.videoWidth;
+          vh = exit!.videoHeight;
+          current = 0; // exit t=0 = cat seated, matches the return clip's end
+          if (hasRVFC) exit!.requestVideoFrameCallback(onFrame);
+        }
       }
 
       const v = activeVideo();
       if (!v.duration) return;
-      // EXIT: p 0→1 maps to t 0→end (cat leaves scrolling down).
-      // RETURN: p decreases going up → (1-p) increases → return clip plays forward (cat walks in).
+      // EXIT:   t = p·dur        (seated at p=0 → walks out → gone at p=1)
+      // RETURN: t = (1−p)·dur    (gone at p=1 → walks in → seated at p=0)
+      // Either direction on a clip is just a scrub of that clip — reversing
+      // mid-way replays the same footage backward (smooth), never a clip jump.
       target = active === "exit" ? p * v.duration : (1 - p) * v.duration;
 
       if (reduce) {
